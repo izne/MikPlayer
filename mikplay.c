@@ -1,11 +1,13 @@
-/* MIKPLAY.C - Simple MOD player using MikMod Static Library in 32-bit protected mode using the DOS32A DPMI extender */
 /* 
- * Use OpenWatcomC compiler
- * Compile the latest MikMod to 32-bit DOS static library
+ * MIKPLAY.C - Simple MOD player using MikMod Static Library in 32-bit protected mode using the DOS32A DPMI extender
+ * 
+ * Use Open Watcom C compiler
+ * Compile the latest MikMod to a 32-bit DOS static library
+ * 
  * Compile MikPlay with:
  * wcl386 -l=dos32a -5s -bt=dos -fp5 -fpi87 -mf -oeatxh -w4 -ei -zp8 -zq -dMIKMOD_STATIC=1 -i..\libmikmod-3.3.13\include\ mikplay.c ..\libmikmod-3.3.13\dos\mikmod.lib
- * mikmod.lib
  */
+ 
 
 #include <stdio.h>
 #include <conio.h>
@@ -21,7 +23,7 @@ void update_status(MODULE *module, int volume) {
     int vu_level;
     int num_voices = module->numvoices;
     
-    /* volumeto */
+    // volumeto
     for (i = 0; i < num_voices; i++) {
         if (!Voice_Stopped(i)) {
             int vol = Voice_GetVolume(i);
@@ -31,7 +33,7 @@ void update_status(MODULE *module, int volume) {
         }
     }
     
-    /* Fake VU meter level */
+    // Fake VU meter level
     vu_level = (max_volume * 10) / 256; // 0-256 range
     if (vu_level > 10) vu_level = 10;   // overdrive
     
@@ -46,7 +48,7 @@ void update_status(MODULE *module, int volume) {
            active_channels,
            num_voices);
     
-    /* VU bars */
+    // VU bars
     for (i = 0; i < 10; i++) {
         if (i < vu_level) printf("=");
         else printf(" ");
@@ -61,7 +63,7 @@ int main(int argc, char *argv[])
     char *filename;
     int current_volume = 128;
     clock_t last_update = 0;
-    int update_interval = CLOCKS_PER_SEC / 4; /* 4 times per second */
+    int update_interval = CLOCKS_PER_SEC / 8; // 8 times per second
     
     if (argc < 2) {
         printf("Usage: mikplay <module>\n");
@@ -79,9 +81,9 @@ int main(int argc, char *argv[])
     MikMod_RegisterAllLoaders();
     MikMod_RegisterAllDrivers();
     
-    /* Initialize sound output */
+    // init output modes
     md_mode |= DMODE_SOFT_MUSIC | DMODE_SOFT_SNDFX;
-    md_mixfreq = 22050; //44100; /* 44.1 kHz */
+    md_mixfreq = 22050; //44100;
     
     if (MikMod_Init("")) {
         printf("Could not initialize MikMod: %s\n", MikMod_strerror(MikMod_errno));
@@ -167,8 +169,10 @@ int main(int argc, char *argv[])
             }
         }
         // eof
-        if (!Player_Active()) break;
-        printf("\nFinished!\n");
+        if (!Player_Active()) {
+            printf("\nFinished!\n");
+            break;
+        }
     }
     
     // Cleanup
