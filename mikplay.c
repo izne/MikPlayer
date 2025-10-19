@@ -7,7 +7,7 @@
  * Compile MikPlay with:
  * wcl386 -l=dos32a -5s -bt=dos -fp5 -fpi87 -mf -oeatxh -w4 -ei -zp8 -zq -dMIKMOD_STATIC=1 -i..\libmikmod-3.3.13\include\ mikplay.c ..\libmikmod-3.3.13\dos\mikmod.lib
  */
- 
+
 
 #include <stdio.h>
 #include <conio.h>
@@ -92,7 +92,7 @@ int main(int argc, char *argv[])
     
     printf("Loading: %s ...\n", filename);
     
-    /* Load chunks (streaming from file) */
+    // Load chunks (streaming from file)
     module = Player_Load(filename, 64, 0);
     if (!module) {
         printf("Could not load module: %s\n", MikMod_strerror(MikMod_errno));
