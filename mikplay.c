@@ -8,11 +8,14 @@
  * wcl386 -l=dos32a -5s -bt=dos -fp5 -fpi87 -mf -oeatxh -w4 -ei -zp8 -zq -dMIKMOD_STATIC=1 -i..\libmikmod-3.3.13\include\ mikplay.c ..\libmikmod-3.3.13\dos\mikmod.lib
  */
 
-
+#include <stdlib.h>
 #include <stdio.h>
 #include <conio.h>
 #include <time.h>
+#include <sys/stat.h>
 #include <mikmod.h>
+
+#define MEM_LOAD_THRESHOLD 6291456  // load to memory if smaller than 6MB
 
 
 void update_status(MODULE *module, int volume) {
@@ -64,6 +67,9 @@ int main(int argc, char *argv[])
     int current_volume = 128;
     clock_t last_update = 0;
     int update_interval = CLOCKS_PER_SEC / 8; // 8 times per second
+    struct stat file_info;
+    long file_size;
+    int use_memory_load = 0;
     
     if (argc < 2) {
         printf("Usage: mikplay <module>\n");
@@ -72,7 +78,7 @@ int main(int argc, char *argv[])
     }
     
     filename = argv[1];
-    
+
     printf("\nInitializing MikMod Library v.%ld.%ld.%ld ...\n",
            (MikMod_GetVersion() >> 16) & 0xFF,
            (MikMod_GetVersion() >> 8) & 0xFF,
@@ -90,10 +96,57 @@ int main(int argc, char *argv[])
         return 1;
     }
     
-    printf("Loading: %s ...\n", filename);
-    
-    // Load chunks (streaming from file)
-    module = Player_Load(filename, 64, 0);
+    // Check file size
+    if (stat(filename, &file_info) == 0)
+    {
+        file_size = file_info.st_size;
+        if (file_size < MEM_LOAD_THRESHOLD) use_memory_load = 1;
+    } 
+    else 
+        file_size = 0;
+
+    if (use_memory_load)
+    {
+        FILE *fp;
+        char *buffer;
+        
+        printf("Loading %s to memory (%.2f KB): ...\n", filename, file_size / 1024.0);
+        
+        fp = fopen(filename, "rb");
+        if (!fp) {
+            printf("Could not open file for reading\n");
+            MikMod_Exit();
+            return 1;
+        }
+        
+        buffer = (char *)malloc(file_size);
+        if (!buffer) {
+            printf("Could not allocate memory for module\n");
+            fclose(fp);
+            MikMod_Exit();
+            return 1;
+        }
+        
+        if (fread(buffer, 1, file_size, fp) != file_size) {
+            printf("Error reading file\n");
+            free(buffer);
+            fclose(fp);
+            MikMod_Exit();
+            return 1;
+        }
+        fclose(fp);
+        
+        module = Player_LoadMem(buffer, file_size, 64, 0);
+        free(buffer);
+    } 
+    else 
+    {
+        // Load chunks (streaming from file)
+        printf("Streaming %s from disk: ...\n", filename);
+        module = Player_Load(filename, 64, 0);
+    }
+
+
     if (!module) {
         printf("Could not load module: %s\n", MikMod_strerror(MikMod_errno));
         MikMod_Exit();
