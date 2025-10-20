@@ -6,9 +6,26 @@
  * 
  * Compile MikPlay with:
  * wcl386 -l=dos32a -5s -bt=dos -fp5 -fpi87 -mf -oeatxh -w4 -ei -zp8 -zq -dMIKMOD_STATIC=1 -i..\libmikmod-3.3.13\include\ mikplay.c ..\libmikmod-3.3.13\dos\mikmod.lib
+ *
+ * experimental cflags for optimized builds
+ * AMD X5-160:
+ * wcl386 -5r -fp5 -fpi87 -ox -om -s -ot -bt=dos -DMIKMOD_STATIC modtest.c mikmod.lib
+ * 
+ * 486 DX:
+ * wcl386 -4r -fp3 -fpi87 -ox -om -s -ot -bt=dos -DMIKMOD_STATIC modtest.c mikmod.lib
+ *
+ * 386 DX:
+ * wcl386 -3r -fp3 -fpi87 -ox -om -s -ot -bt=dos -DMIKMOD_STATIC modtest.c mikmod.lib
+ *
+ * and:
+ * -ot = optimize for time (speed)
+ * -ox = maximum optimization
+ * -om = inline math functions
+ * -s = remove stack overflow checks (faster)
  */
 
 #include <stdlib.h>
+#include <string.h>
 #include <stdio.h>
 #include <conio.h>
 #include <time.h>
@@ -16,6 +33,9 @@
 #include <mikmod.h>
 
 #define MEM_LOAD_THRESHOLD 6291456  // load to memory if smaller than 6MB
+#define VER_MAJ 0
+#define VER_MIN 2
+#define VER_STR "retrohw"
 
 
 void update_status(MODULE *module, int volume) {
@@ -70,16 +90,64 @@ int main(int argc, char *argv[])
     struct stat file_info;
     long file_size;
     int use_memory_load = 0;
+    int max_voices = 64;
+    int mix_freq = 22050;
+    int low_cpu_mode = 0;
+    int i;
     
     if (argc < 2) {
-        printf("Usage: mikplay <module>\n");
-        printf("Supports: IT, MOD, S3M, and XM.\n");
+        printf("\nUsage: mikplay <module_file> [options]\n");
+        printf("Options:\n");
+        printf("  -386      386 mode: 11kHz, mono, 8 voices, slow display\n");
+        printf("  -486      486 mode: 22kHz, stereo, 16 voices\n");
+        printf("  -hifi     Hi-Fi mode: 44kHz, stereo, 64 voices (default: 22kHz)\n");
+        printf("  -mono     Force mono output\n");
+        printf("  -v<num>   Set max voices (default: 64)\n");
+        printf("  -f<freq>  Set mixing frequency: 11025, 22050, 44100\n");
+        printf("\nSupports: IT, MOD, S3M, XM, etc.\n");
         return 1;
+    }
+
+
+    printf("\nMikPlayer, ver.%d.%d-%s\n(c) 2025 Dimitar Angelov\n\n", VER_MAJ, VER_MIN, VER_STR);
+
+    // Parse command line options
+    for (i = 2; i < argc; i++)
+    {
+        if (strcmp(argv[i], "-386") == 0) {
+            mix_freq = 11025;
+            max_voices = 8;
+            low_cpu_mode = 1;
+            update_interval = CLOCKS_PER_SEC; // once per second
+            printf("386 mode enabled: 11kHz mono, 8 voices\n");
+        }
+        else if (strcmp(argv[i], "-486") == 0) {
+            mix_freq = 22050;
+            max_voices = 16;
+            printf("Slow 486 mode enabled: 22kHz stereo, 16 voices\n");
+        }
+        else if (strcmp(argv[i], "-hifi") == 0) {
+            mix_freq = 44100;
+            max_voices = 64;
+            printf("Hi-Fi mode enabled: 44kHz stereo, 64 voices\n");
+        }
+        else if (strcmp(argv[i], "-mono") == 0) {
+            low_cpu_mode = 1;
+            printf("Mono output enabled\n");
+        }
+        else if (argv[i][0] == '-' && argv[i][1] == 'v') {
+            max_voices = atoi(argv[i] + 2);
+            printf("Max voices set to: %d\n", max_voices);
+        }
+        else if (argv[i][0] == '-' && argv[i][1] == 'f') {
+            mix_freq = atoi(argv[i] + 2);
+            printf("Mix frequency set to: %d Hz\n", mix_freq);
+        }
     }
     
     filename = argv[1];
 
-    printf("\nInitializing MikMod Library v.%ld.%ld.%ld ...\n",
+    printf("Initializing MikMod Library v.%ld.%ld.%ld ...\n",
            (MikMod_GetVersion() >> 16) & 0xFF,
            (MikMod_GetVersion() >> 8) & 0xFF,
            MikMod_GetVersion() & 0xFF);
@@ -88,9 +156,16 @@ int main(int argc, char *argv[])
     MikMod_RegisterAllDrivers();
     
     // init output modes
-    md_mode |= DMODE_SOFT_MUSIC | DMODE_SOFT_SNDFX;
-    md_mixfreq = 22050; //44100;
+    md_mode = DMODE_SOFT_MUSIC;
+    md_mixfreq = mix_freq;
+    if (low_cpu_mode) md_mode &= ~DMODE_STEREO; // disable stereo for 386
+    else md_mode |= DMODE_STEREO;
     
+    printf("Audio output: %dHz, %s, %d voices max\n",
+           mix_freq,
+           low_cpu_mode ? "mono" : "stereo",
+           max_voices);
+
     if (MikMod_Init("")) {
         printf("Could not initialize MikMod: %s\n", MikMod_strerror(MikMod_errno));
         return 1;
@@ -154,13 +229,8 @@ int main(int argc, char *argv[])
     }
     
     if(module->comment) printf("Comment: %s\n", module->comment);
-    printf("Name: %s\n", module->songname);
-    printf("Type: %s\n", module->modtype);
-    printf("Patterns: %d\n", module->numpos);
-    printf("Channels: %d\n", module->numchn);
-    printf("Instruments: %d\n", module->numins);
-    printf("Samples: %d\n", module->numsmp);
-	printf("DAC sampling rate: %d Hz\n", md_mixfreq);
+    printf("Name: %s  Type: %s\n", module->songname, module->modtype);
+    printf("Channels: %d  Patterns: %d  Instruments: %d  Samples: %d\n", module->numchn, module->numpos, module->numins, module->numsmp);
     
     Player_Start(module);
     Player_SetVolume(current_volume);
