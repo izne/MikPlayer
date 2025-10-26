@@ -64,6 +64,9 @@
 #define COL_YELLOW_BLACK 0x0E    // Yellow on black
 #define COL_LGRAY_BLACK  0x07    // Light gray on black
 
+// Inline frequently called functions
+//#pragma aux write_char_attr parm [eax] [edx] [ecx] [ebx];
+
 // Global vars
 MODULE *g_module = NULL;
 int g_comment_scroll = 0;
@@ -210,7 +213,7 @@ void draw_comment_panel(MODULE *module)
     int start_line = g_comment_scroll;
     
     draw_box(1, 12, 78, 22, COL_BLACK_CYAN);
-    write_string_attr(3, 12, "Notes", COL_YELLOW_CYAN);
+    write_string_attr(3, 12, "Comment", COL_YELLOW_CYAN);
     
     if (!comment || strlen(comment) == 0) return;
     
@@ -239,7 +242,7 @@ void draw_comment_panel(MODULE *module)
         if (comment[i] == '\r') i++;
         if (comment[i] == '\n') i++;
         
-        write_string_attr(3, y++, line, COL_LGRAY_BLACK);
+        write_string_attr(3, y++, line, COL_BLACK_CYAN);
         line_count++;
     }
 }
@@ -474,8 +477,9 @@ int main(int argc, char *argv[])
     }
     else
     {
-        printf("Streaming %s from disk ...\n", filename);
+        printf("Streaming %s from disk (%.2f KB) ...\n", filename, file_size / 1024.0);
         module = Player_Load(filename, max_voices, 0);
+        
     }
 
     if (!module)
@@ -510,7 +514,8 @@ int main(int argc, char *argv[])
     
     // Cleanup
     //_settextcursor(0x0607); // Restore cursor 
-    printf("EOF\n");
+    //_settextmode(_TEXTC80);
+    printf("\nEOF\n");
     Player_Stop();
     Player_Free(module);
     MikMod_Exit();
