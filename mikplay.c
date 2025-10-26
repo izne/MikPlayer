@@ -1,9 +1,29 @@
 /* 
- * MIKPLAY.C - Simple MOD player with Turbo Vision-style TUI
+ * MIKPLAY.C - Simple MOD player in 32-bit protected mode using the DOS32A DPMI extender with a text-based UI
  * 
- * Compile with:
+ * Use OpenWatcom C compiler
+ * Compile the latest MikMod to a 32-bit DOS static library (mikmod.lib)
+ * 
+ * Compile MikPlay with:
  * wcl386 -l=dos32a -5s -bt=dos -fp5 -fpi87 -mf -oeatxh -w4 -ei -zp8 -zq -dMIKMOD_STATIC=1 -i..\libmikmod-3.3.13\include\ mikplay.c ..\libmikmod-3.3.13\dos\mikmod.lib
+ *
+ * experimental cflags for optimized builds
+ * AMD X5-160:
+ * wcl386 -5r -fp5 -fpi87 -ox -om -s -ot -bt=dos -DMIKMOD_STATIC modtest.c mikmod.lib
+ * 
+ * 486 DX:
+ * wcl386 -4r -fp3 -fpi87 -ox -om -s -ot -bt=dos -DMIKMOD_STATIC modtest.c mikmod.lib
+ *
+ * 386 DX:
+ * wcl386 -3r -fp3 -fpi87 -ox -om -s -ot -bt=dos -DMIKMOD_STATIC modtest.c mikmod.lib
+ *
+ * and:
+ * -ot = optimize for time (speed)
+ * -ox = maximum optimization
+ * -om = inline math functions
+ * -s = remove stack overflow checks (faster)
  */
+
 
 #include <stdlib.h>
 #include <string.h>
@@ -15,7 +35,7 @@
 
 #define MEM_LOAD_THRESHOLD 6291456
 #define VER_MAJ 0
-#define VER_MIN 4
+#define VER_MIN 3
 #define VER_STR "retrohw"
 
 // IBM Chars (CP437)
@@ -79,8 +99,8 @@ void draw_box(int x1, int y1, int x2, int y2, unsigned char attr)
 {
     int i;
 
-    // TODO: set background
-    fill_rect(x1, x2, y1, y2, '+', COL_BLACK_CYAN);
+    // Set background
+    fill_rect(x1, y1, x2, y2, ' ', COL_BLACK_CYAN);
 
     write_char_attr(x1, y1, CH_ULCORNER, attr);
     write_char_attr(x2, y1, CH_URCORNER, attr);
@@ -120,28 +140,12 @@ void draw_status_bar(const char *text)
     write_string_attr(1, 24, text, COL_BLACK_LGRAY);
 }
 
-void draw_info_panel(MODULE *module, int volume)
+void draw_info_panel(MODULE *module)
 {
     char buf[80];
-    int active_channels = 0;
-    int i, max_volume = 0, vu_level;
-    
-    // Count active voices
-    for (i = 0; i < module->numvoices; i++)
-    {
-        if (!Voice_Stopped(i))
-        {
-            int vol = Voice_GetVolume(i);
-            active_channels++;
-            if (vol > max_volume) max_volume = vol;
-        }
-    }
-    
-    vu_level = (max_volume * 10) / 256;
-    if (vu_level > 10) vu_level = 10;
     
     draw_box(1, 3, 40, 11, COL_BLACK_CYAN);
-    write_string_attr(3, 3, "Modinfo", COL_YELLOW_CYAN);
+    write_string_attr(3, 3, "Info", COL_YELLOW_CYAN);
     
     sprintf(buf, "%.28s", module->songname);
     write_string_attr(3, 4, buf, COL_BLACK_CYAN);
@@ -155,21 +159,21 @@ void draw_info_panel(MODULE *module, int volume)
     write_string_attr(3, 8, buf, COL_BLACK_CYAN);
     sprintf(buf, "Output  : %dHz, %s, %d voices", mix_freq, force_mono ? "mono" : "stereo", max_voices);
     write_string_attr(3, 9, buf, COL_BLACK_CYAN);
-    sprintf(buf, "Volume  : %3d, Channels: %02d/%02d", volume, active_channels, module->numvoices);
-    write_string_attr(3, 10, buf, COL_WHITE_CYAN);
 }
 
-void draw_playback_panel(MODULE *module)
+void draw_playback_panel(MODULE *module, int volume)
 {
     char buf[80];
     int i, vu_level, max_volume = 0;
+    int active_channels = 0; 
     
-    // Calculate VU
+    // Fake VU
     for (i = 0; i < module->numvoices; i++)
     {
         if (!Voice_Stopped(i))
         {
             int vol = Voice_GetVolume(i);
+            active_channels++;
             if (vol > max_volume) max_volume = vol;
         }
     }
@@ -180,14 +184,17 @@ void draw_playback_panel(MODULE *module)
     draw_box(41, 3, 78, 11, COL_BLACK_CYAN);
     write_string_attr(43, 3, "Playback", COL_YELLOW_CYAN);
     
-    sprintf(buf, "Pattrn: %02d/%02d", module->sngpos, module->numpos - 1);
+    sprintf(buf, "Patt: %02d/%02d", module->sngpos, module->numpos - 1);
     write_string_attr(43, 4, buf, COL_BLACK_CYAN);
-    sprintf(buf, "Row   : %02d", module->patpos);
+    sprintf(buf, "Row : %02d", module->patpos);
     write_string_attr(43, 5, buf, COL_BLACK_CYAN);
-    sprintf(buf, "Speed : %02d", module->sngspd);
+    sprintf(buf, "Spd : %02d", module->sngspd);
     write_string_attr(43, 6, buf, COL_BLACK_CYAN);
-    sprintf(buf, "BPM   : %03d", module->bpm);
+    sprintf(buf, "BPM : %03d", module->bpm);
     write_string_attr(43, 7, buf, COL_BLACK_CYAN);
+
+    sprintf(buf, "Vol : %3d, Channels: %02d/%02d", volume, active_channels, module->numvoices);
+    write_string_attr(43, 8, buf, COL_BLACK_CYAN);
     
     // VU meter
     write_string_attr(43, 10, "VU: [", COL_WHITE_CYAN);
@@ -219,7 +226,7 @@ void draw_comment_panel(MODULE *module)
         {
             while (comment[i] && comment[i] != '\n' && comment[i] != '\r') i++;
             if (comment[i] == '\r') i++;
-            //if (comment[i] == '\n') i++;
+            if (comment[i] == '\n') i++;
             line_count++;
             continue;
         }
@@ -230,7 +237,7 @@ void draw_comment_panel(MODULE *module)
         
         // Skip CR/LF
         if (comment[i] == '\r') i++;
-        //if (comment[i] == '\n') i++;
+        if (comment[i] == '\n') i++;
         
         write_string_attr(3, y++, line, COL_LGRAY_BLACK);
         line_count++;
@@ -250,17 +257,15 @@ void draw_ui(MODULE *module, int volume, char *s_profile)
 
     draw_title_bar(title);
     //draw_menu_bar();
-    draw_info_panel(module, volume);
-    draw_playback_panel(module);
+    draw_info_panel(module);
+    draw_playback_panel(module, volume);
     draw_comment_panel(module);
-    //draw_status_bar(Player_Paused() ? "[PAUSED] ESC=Quit SPACE=Play <-/->=Skip" : "[PLAYING] ESC=Quit SPACE=Pause <-/->=Skip +/-=Vol");
+    draw_status_bar("ESC=Quit SPACE=Pause <-/->=Skip +/-=Vol");
 }
 
 void update_ui(MODULE *module, int volume)
 {
-    draw_info_panel(module, volume);
-    draw_playback_panel(module);
-    draw_status_bar(Player_Paused() ? "[PAUSED] ESC=Quit SPACE=Play <-/->=Skip" : "[PLAYING] ESC=Quit SPACE=Pause <-/->=Skip +/-=Vol");
+    draw_playback_panel(module, volume);
 }
 
 int process_keyboard(MODULE *module, int volume)
@@ -337,7 +342,7 @@ int main(int argc, char *argv[])
 {
     MODULE *module;
     clock_t last_update = 0;
-    int update_interval = CLOCKS_PER_SEC / 8;
+    int update_interval = CLOCKS_PER_SEC / 8; // 8 times per second
     struct stat file_info;
     int use_memory_load = 0;
     char *s_profile = "default";
@@ -367,7 +372,7 @@ int main(int argc, char *argv[])
             mix_freq = 11025;
             max_voices = 8;
             force_mono = 1;
-            update_interval = CLOCKS_PER_SEC;
+            update_interval = CLOCKS_PER_SEC; // once per second
             s_profile = "386";
         }
         else if (strcmp(argv[i], "-486") == 0)
@@ -440,7 +445,7 @@ int main(int argc, char *argv[])
         fp = fopen(filename, "rb");
         if (!fp)
         {
-            printf("Could not open file\n");
+            printf("Could not open file for reading!\n");
             MikMod_Exit();
             return 1;
         }
@@ -448,7 +453,7 @@ int main(int argc, char *argv[])
         buffer = (char *)malloc(file_size);
         if (!buffer)
         {
-            printf("Out of memory\n");
+            printf("Could not allocate memory for module\n");
             fclose(fp);
             MikMod_Exit();
             return 1;
@@ -456,7 +461,7 @@ int main(int argc, char *argv[])
         
         if (fread(buffer, 1, file_size, fp) != file_size)
         {
-            printf("Read error\n");
+            printf("Error reading file\n");
             free(buffer);
             fclose(fp);
             MikMod_Exit();
