@@ -35,7 +35,7 @@
 
 #define MEM_LOAD_THRESHOLD 6291456
 #define VER_MAJ 0
-#define VER_MIN 3
+#define VER_MIN 4
 #define VER_STR "retrohw"
 
 // IBM Chars (CP437)
@@ -76,6 +76,7 @@ int mix_freq = 22050;
 int force_mono = 0;
 char *filename;
 long file_size;
+extern MDRIVER *md_driver;
 
 void write_char_attr(int x, int y, unsigned char ch, unsigned char attr)
 {
@@ -162,9 +163,11 @@ void draw_info_panel(MODULE *module)
     write_string_attr(3, 8, buf, COL_BLACK_CYAN);
     sprintf(buf, "Output  : %dHz, %s, %d voices", mix_freq, force_mono ? "mono" : "stereo", max_voices);
     write_string_attr(3, 9, buf, COL_BLACK_CYAN);
+    sprintf(buf, "Driver  : %s", md_driver->Name);
+    write_string_attr(3, 10, buf, COL_BLACK_CYAN);
 }
 
-void draw_playback_panel(MODULE *module, int volume)
+void draw_playback_panel(MODULE *module, int volume, int update)
 {
     char buf[80];
     int i, vu_level, max_volume = 0;
@@ -184,9 +187,12 @@ void draw_playback_panel(MODULE *module, int volume)
     vu_level = (max_volume * 20) / 256;
     if (vu_level > 20) vu_level = 20;
     
-    draw_box(41, 3, 78, 11, COL_BLACK_CYAN);
-    write_string_attr(43, 3, "Playback", COL_YELLOW_CYAN);
-    
+    if(!update)
+    {
+        draw_box(41, 3, 78, 11, COL_BLACK_CYAN);
+        write_string_attr(43, 3, "Playback", COL_YELLOW_CYAN);
+    }
+
     sprintf(buf, "Patt: %02d/%02d", module->sngpos, module->numpos - 1);
     write_string_attr(43, 4, buf, COL_BLACK_CYAN);
     sprintf(buf, "Row : %02d", module->patpos);
@@ -261,14 +267,14 @@ void draw_ui(MODULE *module, int volume, char *s_profile)
     draw_title_bar(title);
     //draw_menu_bar();
     draw_info_panel(module);
-    draw_playback_panel(module, volume);
+    draw_playback_panel(module, volume, 0);
     draw_comment_panel(module);
     draw_status_bar("ESC=Quit SPACE=Pause <-/->=Skip +/-=Vol");
 }
 
 void update_ui(MODULE *module, int volume)
 {
-    draw_playback_panel(module, volume);
+    draw_playback_panel(module, volume, 1);
 }
 
 int process_keyboard(MODULE *module, int volume)
@@ -430,6 +436,10 @@ int main(int argc, char *argv[])
         printf("Could not initialize MikMod: %s\n", MikMod_strerror(MikMod_errno));
         return 1;
     }
+
+    printf("BLASTER=%s\n", getenv("BLASTER"));
+    printf("Supported: \n%s\n", MikMod_InfoDriver());
+    printf("Active driver index: %d\n", md_device);
     
     if (stat(filename, &file_info) == 0)
     {
