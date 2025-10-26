@@ -35,7 +35,7 @@
 
 #define MEM_LOAD_THRESHOLD 6291456
 #define VER_MAJ 0
-#define VER_MIN 4
+#define VER_MIN 5
 #define VER_STR "retrohw"
 
 // IBM Chars (CP437)
@@ -64,12 +64,12 @@
 #define COL_YELLOW_BLACK 0x0E    // Yellow on black
 #define COL_LGRAY_BLACK  0x07    // Light gray on black
 
-// Inline frequently called functions
-//#pragma aux write_char_attr parm [eax] [edx] [ecx] [ebx];
-
 // Global vars
 MODULE *g_module = NULL;
 int g_comment_scroll = 0;
+int g_view_mode = 0; // 0=pattern, 1=comments
+int g_channel_offset = 0;
+int g_max_visible_channels = 8;
 int current_volume = 128;
 int max_voices = 64;
 int mix_freq = 22050;
@@ -86,7 +86,8 @@ void write_char_attr(int x, int y, unsigned char ch, unsigned char attr)
 
 void write_string_attr(int x, int y, const char *str, unsigned char attr)
 {
-    while (*str) {
+    while (*str)
+    {
         write_char_attr(x++, y, *str++, attr);
     }
 }
@@ -211,6 +212,89 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     write_char_attr(68, 10, ']', COL_WHITE_CYAN);
 }
 
+void draw_pattern_viewer(MODULE *module)
+{
+    char buf[80];
+    int ch, y; //, row;
+    int visible_channels = module->numchn;
+    int start_ch = g_channel_offset;
+    int col_width = 9;
+    
+    if (visible_channels > g_max_visible_channels)
+    {
+        visible_channels = g_max_visible_channels;
+    }
+    
+    draw_box(1, 12, 78, 22, COL_BLACK_CYAN);
+    sprintf(buf, "Pattern [Ch %d-%d/%d] TAB=Comment", 
+            start_ch + 1, 
+            start_ch + visible_channels, 
+            module->numchn);
+    write_string_attr(3, 12, buf, COL_YELLOW_CYAN);
+    
+    // Channel headers
+    y = 13;
+    for (ch = 0; ch < visible_channels && (start_ch + ch) < module->numchn; ch++)
+    {
+        int is_ch_active = 0;
+        int voice_ch = start_ch + ch;
+        
+        if (voice_ch < module->numvoices && !Voice_Stopped(voice_ch))
+        {
+            is_ch_active = 1;
+        }
+        
+        sprintf(buf, "Ch%02d", start_ch + ch + 1);
+        write_string_attr(6 + ch * col_width, y, buf, is_ch_active ? 0x0A : COL_BLACK_CYAN);
+    }
+    
+    // Current row and surrounding rows
+    /*
+    y = 14;
+    for (row = -3; row <= 3 && y < 22; row++, y++)
+    {
+        int actual_row = module->patpos + row;
+        unsigned char attr = (row == 0) ? COL_WHITE_CYAN : COL_BLACK_CYAN;
+        
+        if (actual_row >= 0 && actual_row < 64)
+        {
+            sprintf(buf, "%02d", actual_row);
+            write_string_attr(3, y, buf, row == 0 ? COL_YELLOW_CYAN : COL_BLACK_CYAN);
+        }
+        
+        for (ch = 0; ch < visible_channels && (start_ch + ch) < module->numchn; ch++)
+        {
+            if (actual_row >= 0 && actual_row < 64)
+            {
+                int is_active = 0;
+                int voice_ch = start_ch + ch;
+                
+                if (row == 0 && voice_ch < module->numvoices && !Voice_Stopped(voice_ch))
+                {
+                    is_active = 1;
+                }
+                
+                if (is_active)
+                {
+                    // Show active with note placeholder
+                    write_string_attr(6 + ch * col_width, y, "C-4 64", 0x0A);
+                }
+                else
+                {
+                    // Show inactive placeholder
+                    write_string_attr(6 + ch * col_width, y, "... ..", attr);
+                }
+            }
+        }
+    }
+    */
+    
+    if (module->numchn > g_max_visible_channels)
+    {
+        write_string_attr(60, 21, "[<-/-> scroll]", COL_YELLOW_CYAN);
+    }
+}
+
 void draw_comment_panel(MODULE *module)
 {
     int i, y;
@@ -219,7 +303,7 @@ void draw_comment_panel(MODULE *module)
     int start_line = g_comment_scroll;
     
     draw_box(1, 12, 78, 22, COL_BLACK_CYAN);
-    write_string_attr(3, 12, "Comment", COL_YELLOW_CYAN);
+    write_string_attr(3, 12, "Comment [TAB=Pattern]", COL_YELLOW_CYAN);
     
     if (!comment || strlen(comment) == 0) return;
     
@@ -253,6 +337,18 @@ void draw_comment_panel(MODULE *module)
     }
 }
 
+void draw_main_panel(MODULE *module)
+{
+    if (g_view_mode == 0)
+    {
+        draw_pattern_viewer(module);
+    }
+    else
+    {
+        draw_comment_panel(module);
+    }
+}
+
 void draw_ui(MODULE *module, int volume, char *s_profile)
 {
     int x, y;
@@ -268,13 +364,14 @@ void draw_ui(MODULE *module, int volume, char *s_profile)
     //draw_menu_bar();
     draw_info_panel(module);
     draw_playback_panel(module, volume, 0);
-    draw_comment_panel(module);
-    draw_status_bar("ESC=Quit SPACE=Pause <-/->=Skip +/-=Vol");
+    draw_main_panel(module);
+    draw_status_bar("ESC=Quit SPACE=Pause <-/->=Skip +/-=Vol TAB=View");
 }
 
 void update_ui(MODULE *module, int volume)
 {
     draw_playback_panel(module, volume, 1);
+    draw_main_panel(module); // todo: redraw only in pattern mode
 }
 
 int process_keyboard(MODULE *module, int volume)
@@ -285,6 +382,13 @@ int process_keyboard(MODULE *module, int volume)
         
         if (ch == 27) return 0; // ESC
         else if (ch == 'q' || ch == 'Q') return 0;
+        else if (ch == 9) // TAB
+        {
+            g_view_mode = (g_view_mode == 0) ? 1 : 0;
+            g_channel_offset = 0;
+            g_comment_scroll = 0;
+            draw_main_panel(module);
+        }
         else if (ch == ' ')
         {
             Player_TogglePause();
@@ -316,7 +420,13 @@ int process_keyboard(MODULE *module, int volume)
             
             if (ch == 75) // Left arrow
             {
-                if (module->sngpos > 0)
+                if (g_view_mode == 0 && g_channel_offset > 0)
+                {
+                    g_channel_offset -= g_max_visible_channels;
+                    if (g_channel_offset < 0) g_channel_offset = 0;
+                    draw_main_panel(module);
+                }
+                else if (module->sngpos > 0)
                 {
                     Player_SetPosition(module->sngpos - 1);
                     update_ui(module, volume);
@@ -324,23 +434,32 @@ int process_keyboard(MODULE *module, int volume)
             }
             else if (ch == 77) // Right arrow
             {
-                if (module->sngpos < module->numpos - 1) {
+                if (g_view_mode == 0 && (g_channel_offset + g_max_visible_channels) < module->numchn)
+                {
+                    g_channel_offset += g_max_visible_channels;
+                    draw_main_panel(module);
+                }
+                else if (module->sngpos < module->numpos - 1)
+                {
                     Player_SetPosition(module->sngpos + 1);
                     update_ui(module, volume);
                 }
             }
             else if (ch == 72) // Up arrow 
             {
-                if (g_comment_scroll > 0)
+                if (g_view_mode == 1 && g_comment_scroll > 0)
                 {
                     g_comment_scroll--;
-                    draw_comment_panel(module);
+                    draw_main_panel(module);
                 }
             }
             else if (ch == 80) // Down arrow
             {
-                g_comment_scroll++;
-                draw_comment_panel(module);
+                if (g_view_mode == 1)
+                {
+                    g_comment_scroll++;
+                    draw_main_panel(module);
+                }
             }
         }
     }
