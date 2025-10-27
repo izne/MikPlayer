@@ -172,7 +172,9 @@ void draw_playback_panel(MODULE *module, int volume, int update)
 {
     char buf[80];
     int i, vu_level, max_volume = 0;
-    int active_channels = 0; 
+    int active_channels = 0;
+    int progress_level;
+    int row_level;
     
     // Fake VU
     for (i = 0; i < module->numvoices; i++)
@@ -185,8 +187,17 @@ void draw_playback_panel(MODULE *module, int volume, int update)
         }
     }
 
+    // VU interpolation (20 bars)
     vu_level = (max_volume * 20) / 256;
     if (vu_level > 20) vu_level = 20;
+
+    // Song position interpolation (20 bars)
+    if (module->numpos > 1) progress_level = (module->sngpos * 20) / (module->numpos - 1);
+    else progress_level = 0;
+
+    // Row position interpolation (20 bars)
+    row_level = (module->patpos * 20) / 63; // Most patterns have 64 rows (0-63)
+    if (row_level > 20) row_level = 20;
     
     if(!update)
     {
@@ -202,14 +213,19 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     write_string_attr(43, 6, buf, COL_BLACK_CYAN);
     sprintf(buf, "BPM : %03d", module->bpm);
     write_string_attr(43, 7, buf, COL_BLACK_CYAN);
-
-    sprintf(buf, "Vol : %3d, Channels: %02d/%02d", volume, active_channels, module->numvoices);
+    sprintf(buf, "Chan: %02d/%02d", active_channels, module->numvoices);
     write_string_attr(43, 8, buf, COL_BLACK_CYAN);
+    sprintf(buf, "Vol : %3d", volume);
+    write_string_attr(43, 9, buf, COL_BLACK_CYAN);
+
+    // Progress bar
+    for (i = 0; i < 20; i++) write_char_attr(56 + i, 4, i < progress_level ? CH_BLOCK : 196, i < progress_level ? 0x08 : 0x08);
+
+    // Row progress bar
+    for (i = 0; i < 20; i++) write_char_attr(56 + i, 5, i < row_level ? CH_BLOCK : 196, i < row_level ? 0x09 : 0x08);
     
     // VU meter
-    write_string_attr(43, 10, "VU: [", COL_WHITE_CYAN);
-    for (i = 0; i < 20; i++) write_char_attr(48 + i, 10, i < vu_level ? CH_BLOCK : 196, i < vu_level ? 0x08 : 0x08);
-    write_char_attr(68, 10, ']', COL_WHITE_CYAN);
+    for (i = 0; i < 20; i++) write_char_attr(56 + i, 9, i < vu_level ? CH_BLOCK : 196, i < vu_level ? 0x08 : 0x08);
 }
 
 void draw_pattern_viewer(MODULE *module)
