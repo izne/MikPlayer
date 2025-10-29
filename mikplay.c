@@ -135,7 +135,7 @@ void draw_menu_bar()
 {
     fill_rect(0, 1, 79, 1, ' ', COL_BLACK_CYAN);
     write_string_attr(2, 1, "File", COL_BLACK_CYAN);
-    write_string_attr(8, 1, "Playback", COL_BLACK_CYAN);
+    write_string_attr(8, 1, "Settings", COL_BLACK_CYAN);
     write_string_attr(19, 1, "Help", COL_BLACK_CYAN);
 }
 
@@ -158,7 +158,7 @@ void draw_info_panel(MODULE *module)
     write_string_attr(3, 5, buf, COL_BLACK_CYAN);
     sprintf(buf, "File    : %s (%.2f KB)", filename, file_size / 1024.0);
     write_string_attr(3, 6, buf, COL_BLACK_CYAN);
-    sprintf(buf, "Channels: %d,  Patterns: %d", module->numchn, module->numpos);
+    sprintf(buf, "Channels: %0d,  Patterns: %d", module->numchn, module->numpos);
     write_string_attr(3, 7, buf, COL_BLACK_CYAN);
     sprintf(buf, "Instrmts: %d,  Samples : %d", module->numins, module->numsmp);
     write_string_attr(3, 8, buf, COL_BLACK_CYAN);
@@ -175,6 +175,8 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     int active_channels = 0;
     int progress_level;
     int row_level;
+    int current_pattern = module->sngpos;
+    int max_rows = 64; // fallback
     
     // Fake VU
     for (i = 0; i < module->numvoices; i++)
@@ -196,7 +198,13 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     else progress_level = 0;
 
     // Row position interpolation (20 bars)
-    row_level = (module->patpos * 20) / 63; // Most patterns have 64 rows (0-63)
+    //row_level = (module->patpos * 20) / 63; // Most patterns have 64 rows (0-63)
+    //if (row_level > 20) row_level = 20;
+
+    // Get actual rows for current pattern
+    if (current_pattern < module->numpat && module->pattrows)  max_rows = module->pattrows[current_pattern];
+    if (max_rows > 0) row_level = (module->patpos * 20) / (max_rows - 1);
+    else row_level = 0;
     if (row_level > 20) row_level = 20;
     
     if(!update)
@@ -218,7 +226,7 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     sprintf(buf, "Vol : %3d", volume);
     write_string_attr(43, 9, buf, COL_BLACK_CYAN);
 
-    // Progress bar
+    // Song progress bar
     for (i = 0; i < 20; i++) write_char_attr(56 + i, 4, i < progress_level ? CH_BLOCK : 196, i < progress_level ? 0x08 : 0x08);
 
     // Row progress bar
@@ -319,7 +327,7 @@ void draw_comment_panel(MODULE *module)
     int start_line = g_comment_scroll;
     
     draw_box(1, 12, 78, 22, COL_BLACK_CYAN);
-    write_string_attr(3, 12, "Comment [TAB=Pattern]", COL_YELLOW_CYAN);
+    write_string_attr(3, 12, "Comments", COL_YELLOW_CYAN);
     
     if (!comment || strlen(comment) == 0) return;
     
@@ -387,7 +395,7 @@ void draw_ui(MODULE *module, int volume, char *s_profile)
 void update_ui(MODULE *module, int volume)
 {
     draw_playback_panel(module, volume, 1);
-    draw_main_panel(module); // todo: redraw only in pattern mode
+    if (g_view_mode == 0) draw_main_panel(module); // Redraw only in pattern mode
 }
 
 int process_keyboard(MODULE *module, int volume)
