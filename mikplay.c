@@ -29,6 +29,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <conio.h>
+#include <graph.h>
 #include <time.h>
 #include <sys/stat.h>
 #include <mikmod.h>
@@ -158,9 +159,9 @@ void draw_info_panel(MODULE *module)
     write_string_attr(3, 5, buf, COL_BLACK_CYAN);
     sprintf(buf, "File    : %s (%.2f KB)", filename, file_size / 1024.0);
     write_string_attr(3, 6, buf, COL_BLACK_CYAN);
-    sprintf(buf, "Channels: %0d,  Patterns: %d", module->numchn, module->numpos);
+    sprintf(buf, "Channels: %02d, Patterns: %d", module->numchn, module->numpos);
     write_string_attr(3, 7, buf, COL_BLACK_CYAN);
-    sprintf(buf, "Instrmts: %d,  Samples : %d", module->numins, module->numsmp);
+    sprintf(buf, "Instrmts: %d, Samples : %d", module->numins, module->numsmp);
     write_string_attr(3, 8, buf, COL_BLACK_CYAN);
     sprintf(buf, "Output  : %dHz, %s, %d voices", mix_freq, force_mono ? "mono" : "stereo", max_voices);
     write_string_attr(3, 9, buf, COL_BLACK_CYAN);
@@ -197,11 +198,7 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     if (module->numpos > 1) progress_level = (module->sngpos * 20) / (module->numpos - 1);
     else progress_level = 0;
 
-    // Row position interpolation (20 bars)
-    //row_level = (module->patpos * 20) / 63; // Most patterns have 64 rows (0-63)
-    //if (row_level > 20) row_level = 20;
-
-    // Get actual rows for current pattern
+    // Rows for current pattern
     if (current_pattern < module->numpat && module->pattrows)  max_rows = module->pattrows[current_pattern];
     if (max_rows > 0) row_level = (module->patpos * 20) / (max_rows - 1);
     else row_level = 0;
@@ -215,13 +212,13 @@ void draw_playback_panel(MODULE *module, int volume, int update)
 
     sprintf(buf, "Patt: %02d/%02d", module->sngpos, module->numpos - 1);
     write_string_attr(43, 4, buf, COL_BLACK_CYAN);
-    sprintf(buf, "Row : %02d", module->patpos);
+    sprintf(buf, "Row : %03d", module->patpos);
     write_string_attr(43, 5, buf, COL_BLACK_CYAN);
     sprintf(buf, "Spd : %02d", module->sngspd);
     write_string_attr(43, 6, buf, COL_BLACK_CYAN);
     sprintf(buf, "BPM : %03d", module->bpm);
     write_string_attr(43, 7, buf, COL_BLACK_CYAN);
-    sprintf(buf, "Chan: %02d/%02d", active_channels, module->numvoices);
+    sprintf(buf, "Chan: %02d/%02d", active_channels, module->numchn);
     write_string_attr(43, 8, buf, COL_BLACK_CYAN);
     sprintf(buf, "Vol : %3d", volume);
     write_string_attr(43, 9, buf, COL_BLACK_CYAN);
@@ -380,7 +377,7 @@ void draw_ui(MODULE *module, int volume, char *s_profile)
 
     sprintf(title, "MikPlayer-%d.%d-%s - %s mode", VER_MAJ, VER_MIN, VER_STR, s_profile);
 
-    // BACKGROUND FILL
+    // Background fill
     for (y = 1; y < 24; y++)
         for (x = 0; x < 80; x++) write_char_attr(x, y, 176, COL_BLACK_CYAN);
 
@@ -450,7 +447,7 @@ int process_keyboard(MODULE *module, int volume)
                     if (g_channel_offset < 0) g_channel_offset = 0;
                     draw_main_panel(module);
                 }
-                else if (module->sngpos > 0)
+                else if (module->sngpos > 0 && g_view_mode != 0)
                 {
                     Player_SetPosition(module->sngpos - 1);
                     update_ui(module, volume);
@@ -463,7 +460,7 @@ int process_keyboard(MODULE *module, int volume)
                     g_channel_offset += g_max_visible_channels;
                     draw_main_panel(module);
                 }
-                else if (module->sngpos < module->numpos - 1)
+                else if (module->sngpos < module->numpos - 1 && g_view_mode != 0)
                 {
                     Player_SetPosition(module->sngpos + 1);
                     update_ui(module, volume);
@@ -492,13 +489,15 @@ int process_keyboard(MODULE *module, int volume)
 
 int main(int argc, char *argv[])
 {
-    MODULE *module;
+    //MODULE *module;
     clock_t last_update = 0;
     int update_interval = CLOCKS_PER_SEC / 8; // 8 times per second
     struct stat file_info;
     int use_memory_load = 0;
     char *s_profile = "default";
     int i;
+
+    printf("\nMikPlayer, ver.%d.%d-%s\n(c) 2025 Dimitar Angelov\n\n", VER_MAJ, VER_MIN, VER_STR);
     
     if (argc < 2)
     {
@@ -513,8 +512,6 @@ int main(int argc, char *argv[])
         printf("\nSupports: IT, MOD, S3M, XM, etc.\n");
         return 1;
     }
-
-    printf("\nMikPlayer, ver.%d.%d-%s\n(c) 2025 Dimitar Angelov\n\n", VER_MAJ, VER_MIN, VER_STR);
 
     // Parse command line options
     for (i = 2; i < argc; i++)
@@ -570,9 +567,6 @@ int main(int argc, char *argv[])
     md_mixfreq = mix_freq;
     if (force_mono) md_mode &= ~DMODE_STEREO;
     else md_mode |= DMODE_STEREO;
-    
-    printf("Audio output (%s): %dHz, %s, %d voices max\n",
-        s_profile, mix_freq, force_mono ? "mono" : "stereo", max_voices);
 
     if (MikMod_Init(""))
     {
@@ -583,6 +577,7 @@ int main(int argc, char *argv[])
     printf("BLASTER=%s\n", getenv("BLASTER"));
     printf("Supported: \n%s\n", MikMod_InfoDriver());
     printf("Active driver index: %d\n", md_device);
+    printf("Audio output (%s): %dHz, %s, %d voices max\n", s_profile, mix_freq, force_mono ? "mono" : "stereo", max_voices);
     
     if (stat(filename, &file_info) == 0)
     {
@@ -625,40 +620,38 @@ int main(int argc, char *argv[])
         }
         fclose(fp);
         
-        module = Player_LoadMem(buffer, file_size, max_voices, 0);
+        g_module = Player_LoadMem(buffer, file_size, max_voices, 0);
         free(buffer);
     }
     else
     {
         printf("Streaming %s from disk (%.2f KB) ...\n", filename, file_size / 1024.0);
-        module = Player_Load(filename, max_voices, 0);
+        g_module = Player_Load(filename, max_voices, 0);
         
     }
 
-    if (!module)
+    if (!g_module)
     {   
         printf("Could not load module: %s\n", MikMod_strerror(MikMod_errno));
         MikMod_Exit();
         return 1;
     }
     
-    g_module = module;
-    Player_Start(module);
+    //g_module = module;
+    Player_Start(g_module);
     Player_SetVolume(current_volume);
 
-    // Switch to TUI
-    //_settextcursor(0x2000); // Hide cursor
-    draw_ui(module, current_volume, s_profile);
-    
-    while (process_keyboard(module, current_volume)) 
+    _displaycursor(_GCURSOROFF);
+    draw_ui(g_module, current_volume, s_profile);
+
+    while (process_keyboard(g_module, current_volume)) 
     {
         clock_t now = clock();
-
         MikMod_Update();
 
         if (now - last_update >= update_interval)
         {
-            update_ui(module, current_volume);
+            update_ui(g_module, current_volume);
             last_update = now;
         }
         
@@ -666,11 +659,11 @@ int main(int argc, char *argv[])
     }
     
     // Cleanup
-    //_settextcursor(0x0607); // Restore cursor 
-    //_settextmode(_TEXTC80);
-    printf("\nEOF\n");
+    _displaycursor(_GCURSORON);
+    _clearscreen(_GCLEARSCREEN);
+    printf("Thanks for using MIKPLAY!\nMore info at https://github.com/izne/MikPlayer\n\n");
     Player_Stop();
-    Player_Free(module);
+    Player_Free(g_module);
     MikMod_Exit();
     
     return 0;
