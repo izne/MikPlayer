@@ -13,15 +13,14 @@ MikPlayer is a 32-bit protected mode DOS application that plays tracker modules 
 - Real-time VU meter: Based on actual voice volumes via Voice_GetVolume()
 - Smart channel detection: Uses Voice_Stopped() to track active voices
 - Precision timing: clock()-based update intervals with sub-second accuracy
-- Compiler Flags: -5s -fp5 -fpi87 -ox -om -s -ot
-- Compiler Flags 386 build: -3s -fp3 -fpi87 -ox -om -s -ot
+- Compiler Flags: -cc++ -oi+ -5s -fp5 -fpi87 -ox -om -s -ot
+- Compiler Flags 386 build: -cc++ -oi+ -3s -fp3 -fpi87 -ox -om -s -ot
 
 #### Audio
 - Mixing: Software mixing via libMikMod (DMODE_SOFT_MUSIC)
 - Sample Rate: 22050 Hz default (11025/44100 Hz configurable)
 - Channels: Stereo (mono on 386 for performance)
 - Voice Allocation: Up to 64 virtual voices (8 on 386, 16 on 486)
-- Smart Loading: Files <6MB loaded to RAM, larger files streamed from disk
 
 #### Display
 - Direct VRAM writing to 0xB8000 for flicker-free updates
@@ -36,7 +35,7 @@ MikPlayer is a 32-bit protected mode DOS application that plays tracker modules 
 - Hi-Fi Mode: 44kHz stereo, 64 voices
 
 #### Memory
-- Threshold-based loading: Files <6MB loaded to memory via Player_LoadMem()
+- Smart threshold-based loading: Files <6MB loaded to memory via Player_LoadMem()
 - Streaming playback: Larger files use Player_Load() for disk streaming
 - Reduces memory footprint on systems with limited RAM
 
@@ -58,9 +57,10 @@ wmake -f Makefile.wat
 #### Compile MikPlay
 Using the dos32a extender and optimizations:
 ```
-wcl386 -l=dos32a -5s -bt=dos -fp5 -fpi87 -mf -oeatxh -w4 -ei -zp8 -zq -dMIKMOD_STATIC=1 -i..\libmikmod-3.3.13\include\ mikplay.c ..\libmikmod-3.3.13\dos\mikmod.lib
+wcl386 -cc++ -oi+ -l=dos32a -5s -bt=dos -fp5 -fpi87 -mf -oeatxh -w4 -ei -zp8 -zq -dMIKMOD_STATIC=1 -i..\libmikmod-3.3.13\include\ mikplay.c ..\libmikmod-3.3.13\dos\mikmod.lib
 ```
 
 #### Thanks to beta-testers
 @philip_petev
 @mbgaudio
+@milen_ot_varna

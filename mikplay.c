@@ -1,11 +1,9 @@
 /* 
- * MIKPLAY.C - Simple MOD player in 32-bit protected mode using the DOS32A DPMI extender with a text-based UI
+ * MIKPLAY.C - A compact 32-bit DOS modfile player, based on the MikMod library
  * 
- * Use OpenWatcom C compiler
- * Compile the latest MikMod to a 32-bit DOS static library (mikmod.lib)
  * 
- * Compile MikPlay with:
- * wcl386 -l=dos32a -5s -bt=dos -fp5 -fpi87 -mf -oeatxh -w4 -ei -zp8 -zq -dMIKMOD_STATIC=1 -i..\libmikmod-3.3.13\include\ mikplay.c ..\libmikmod-3.3.13\dos\mikmod.lib
+ * Compile:
+ * wcl386 -cc++ -l=dos32a -5s -bt=dos -fp5 -fpi87 -mf -oeatxh -w4 -ei -zp8 -zq -dMIKMOD_STATIC=1 -i..\libmikmod-3.3.13\include\ mikplay.c ..\libmikmod-3.3.13\dos\mikmod.lib
  *
  * experimental cflags for optimized builds
  * AMD X5-160:
@@ -101,6 +99,21 @@ void fill_rect(int x1, int y1, int x2, int y2, unsigned char ch, unsigned char a
             write_char_attr(x, y, ch, attr);
 }
 
+static inline void itoa2(char *buf, int val)
+{
+    buf[0] = '0' + (val / 10);
+    buf[1] = '0' + (val % 10);
+    buf[2] = '\0';
+}
+
+static inline void itoa3(char *buf, int val)
+{
+    buf[0] = '0' + (val / 100);
+    buf[1] = '0' + ((val / 10) % 10);
+    buf[2] = '0' + (val % 10);
+    buf[3] = '\0';
+}
+
 void draw_box(int x1, int y1, int x2, int y2, unsigned char attr)
 {
     int i;
@@ -174,20 +187,17 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     char buf[80];
     int i, vu_level, max_volume = 0;
     int active_channels = 0;
-    int progress_level;
-    int row_level;
+    int progress_level, row_level, vol;
     int current_pattern = module->sngpos;
     int max_rows = 64; // fallback
-    
-    // Fake VU
-    for (i = 0; i < module->numvoices; i++)
+    int num_voices = module->numvoices;
+
+    for (i = 0; i < num_voices; i++)
     {
-        if (!Voice_Stopped(i))
-        {
-            int vol = Voice_GetVolume(i);
-            active_channels++;
-            if (vol > max_volume) max_volume = vol;
-        }
+        if (Voice_Stopped(i)) continue;
+        vol = Voice_GetVolume(i);
+        active_channels++;
+        if (vol > max_volume) max_volume = vol;
     }
 
     // VU interpolation (20 bars)
@@ -210,6 +220,7 @@ void draw_playback_panel(MODULE *module, int volume, int update)
         write_string_attr(43, 3, "Playback", COL_YELLOW_CYAN);
     }
 
+/*
     sprintf(buf, "Patt: %02d/%02d", module->sngpos, module->numpos - 1);
     write_string_attr(43, 4, buf, COL_BLACK_CYAN);
     sprintf(buf, "Row : %03d", module->patpos);
@@ -221,6 +232,42 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     sprintf(buf, "Chan: %02d/%02d", active_channels, module->numchn);
     write_string_attr(43, 8, buf, COL_BLACK_CYAN);
     sprintf(buf, "Vol : %3d", volume);
+    write_string_attr(43, 9, buf, COL_BLACK_CYAN);
+*/
+    // sprintf(buf, "Patt: %02d/%02d", module->sngpos, module->numpos - 1);
+    strcpy(buf, "Patt: ");
+    itoa2(buf + 6, module->sngpos);
+    buf[8] = '/';
+    itoa2(buf + 9, module->numpos - 1);
+    buf[11] = '\0';
+    write_string_attr(43, 4, buf, COL_BLACK_CYAN);
+    
+    // sprintf(buf, "Row : %03d", module->patpos);
+    strcpy(buf, "Row : ");
+    itoa3(buf + 6, module->patpos);
+    write_string_attr(43, 5, buf, COL_BLACK_CYAN);
+    
+    // sprintf(buf, "Spd : %02d", module->sngspd);
+    strcpy(buf, "Spd : ");
+    itoa2(buf + 6, module->sngspd);
+    write_string_attr(43, 6, buf, COL_BLACK_CYAN);
+    
+    // sprintf(buf, "BPM : %03d", module->bpm);
+    strcpy(buf, "BPM : ");
+    itoa3(buf + 6, module->bpm);
+    write_string_attr(43, 7, buf, COL_BLACK_CYAN);
+    
+    // sprintf(buf, "Chan: %02d/%02d", active_channels, module->numchn);
+    strcpy(buf, "Chan: ");
+    itoa2(buf + 6, active_channels);
+    buf[8] = '/';
+    itoa2(buf + 9, module->numchn);
+    buf[11] = '\0';
+    write_string_attr(43, 8, buf, COL_BLACK_CYAN);
+    
+    // sprintf(buf, "Vol : %3d", volume);
+    strcpy(buf, "Vol : ");
+    itoa3(buf + 6, volume);
     write_string_attr(43, 9, buf, COL_BLACK_CYAN);
 
     // Song progress bar
@@ -489,7 +536,6 @@ int process_keyboard(MODULE *module, int volume)
 
 int main(int argc, char *argv[])
 {
-    //MODULE *module;
     clock_t last_update = 0;
     int update_interval = CLOCKS_PER_SEC / 8; // 8 times per second
     struct stat file_info;
@@ -637,7 +683,6 @@ int main(int argc, char *argv[])
         return 1;
     }
     
-    //g_module = module;
     Player_Start(g_module);
     Player_SetVolume(current_volume);
 
