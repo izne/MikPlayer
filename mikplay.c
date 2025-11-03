@@ -227,7 +227,7 @@ void draw_playback_panel(MODULE *module, int volume, int update)
         write_string_attr(43, 3, "Playback", COL_YELLOW_CYAN);
     }
 
-    strcpy(buf, "Patt: "); itoa2(buf + 6, module->sngpos); buf[8] = '/'; itoa2(buf + 9, module->numpos - 1); buf[11] = '\0';
+    strcpy(buf, "Patt: "); itoa3(buf + 6, module->sngpos); buf[9] = '/'; itoa3(buf + 10, module->numpos - 1); buf[13] = '\0';
     write_string_attr(43, 4, buf, COL_BLACK_CYAN);
     
     strcpy(buf, "Row : "); itoa3(buf + 6, module->patpos);
@@ -249,20 +249,20 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     write_string_attr(43, 10, buf, COL_BLACK_CYAN);
 
     // Song progress
-    for (i = 0; i < 20; i++) write_char_attr(56 + i, 4, i < progress_level ? CH_BLOCK : 196, i < progress_level ? 0x08 : 0x08);
+    for (i = 0; i < 20; i++) write_char_attr(57 + i, 4, i < progress_level ? CH_BLOCK : 196, i < progress_level ? 0x08 : 0x08);
 
     // Row progress
-    for (i = 0; i < 20; i++) write_char_attr(56 + i, 5, i < row_level ? CH_BLOCK : 196, i < row_level ? 0x09 : 0x08);
+    for (i = 0; i < 20; i++) write_char_attr(57 + i, 5, i < row_level ? CH_BLOCK : 196, i < row_level ? 0x09 : 0x08);
 
     // 20 channels indication   
     for (i = 0; i < 20; i++)
     {
         unsigned char attr = (active_channel_bar[i] == 254) ? 0x0A : 0x08;
-        write_char_attr(56 + i, 8, active_channel_bar[i], attr);
+        write_char_attr(57 + i, 8, active_channel_bar[i], attr);
     }
     
     // VU meter
-    for (i = 0; i < 20; i++) write_char_attr(56 + i, 10, i < vu_level ? CH_BLOCK : 196, i < vu_level ? 0x08 : 0x08);
+    for (i = 0; i < 20; i++) write_char_attr(57 + i, 10, i < vu_level ? CH_BLOCK : 196, i < vu_level ? 0x08 : 0x08);
 }
 
 void draw_file_browser()
