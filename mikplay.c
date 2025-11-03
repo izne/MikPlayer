@@ -34,7 +34,7 @@
 
 #define MEM_LOAD_THRESHOLD 6291456
 #define VER_MAJ 0
-#define VER_MIN 5
+#define VER_MIN 6
 #define VER_STR "retrohw"
 
 // IBM Chars (CP437)
@@ -66,7 +66,7 @@
 // Global vars
 MODULE *g_module = NULL;
 int g_comment_scroll = 0;
-int g_view_mode = 0; // 0=pattern, 1=comments
+int g_view_mode = 1; // 0=browser, 1=comments //TODO: make ENUM for that
 int g_channel_offset = 0;
 int g_max_visible_channels = 8;
 int current_volume = 128;
@@ -75,6 +75,7 @@ int mix_freq = 22050;
 int force_mono = 0;
 char *filename;
 long file_size;
+int audio_verbose = 0;
 extern MDRIVER *md_driver;
 
 void write_char_attr(int x, int y, unsigned char ch, unsigned char attr)
@@ -191,10 +192,16 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     int current_pattern = module->sngpos;
     int max_rows = 64; // fallback
     int num_voices = module->numvoices;
+    char active_channel_bar[21]; // 20 chars + null terminator
+
+    // Active channel bar placeholder
+    memset(active_channel_bar, CH_HLINE, 20);
+    active_channel_bar[20] = '\0';
 
     for (i = 0; i < num_voices; i++)
     {
         if (Voice_Stopped(i)) continue;
+        if (i < 20) active_channel_bar[i] = 254; // nice little square
         vol = Voice_GetVolume(i);
         active_channels++;
         if (vol > max_volume) max_volume = vol;
@@ -220,147 +227,47 @@ void draw_playback_panel(MODULE *module, int volume, int update)
         write_string_attr(43, 3, "Playback", COL_YELLOW_CYAN);
     }
 
-/*
-    sprintf(buf, "Patt: %02d/%02d", module->sngpos, module->numpos - 1);
-    write_string_attr(43, 4, buf, COL_BLACK_CYAN);
-    sprintf(buf, "Row : %03d", module->patpos);
-    write_string_attr(43, 5, buf, COL_BLACK_CYAN);
-    sprintf(buf, "Spd : %02d", module->sngspd);
-    write_string_attr(43, 6, buf, COL_BLACK_CYAN);
-    sprintf(buf, "BPM : %03d", module->bpm);
-    write_string_attr(43, 7, buf, COL_BLACK_CYAN);
-    sprintf(buf, "Chan: %02d/%02d", active_channels, module->numchn);
-    write_string_attr(43, 8, buf, COL_BLACK_CYAN);
-    sprintf(buf, "Vol : %3d", volume);
-    write_string_attr(43, 9, buf, COL_BLACK_CYAN);
-*/
-    // sprintf(buf, "Patt: %02d/%02d", module->sngpos, module->numpos - 1);
-    strcpy(buf, "Patt: ");
-    itoa2(buf + 6, module->sngpos);
-    buf[8] = '/';
-    itoa2(buf + 9, module->numpos - 1);
-    buf[11] = '\0';
+    strcpy(buf, "Patt: "); itoa2(buf + 6, module->sngpos); buf[8] = '/'; itoa2(buf + 9, module->numpos - 1); buf[11] = '\0';
     write_string_attr(43, 4, buf, COL_BLACK_CYAN);
     
-    // sprintf(buf, "Row : %03d", module->patpos);
-    strcpy(buf, "Row : ");
-    itoa3(buf + 6, module->patpos);
+    strcpy(buf, "Row : "); itoa3(buf + 6, module->patpos);
     write_string_attr(43, 5, buf, COL_BLACK_CYAN);
     
-    // sprintf(buf, "Spd : %02d", module->sngspd);
-    strcpy(buf, "Spd : ");
-    itoa2(buf + 6, module->sngspd);
-    write_string_attr(43, 6, buf, COL_BLACK_CYAN);
-    
-    // sprintf(buf, "BPM : %03d", module->bpm);
-    strcpy(buf, "BPM : ");
-    itoa3(buf + 6, module->bpm);
-    write_string_attr(43, 7, buf, COL_BLACK_CYAN);
-    
-    // sprintf(buf, "Chan: %02d/%02d", active_channels, module->numchn);
-    strcpy(buf, "Chan: ");
-    itoa2(buf + 6, active_channels);
-    buf[8] = '/';
-    itoa2(buf + 9, module->numchn);
-    buf[11] = '\0';
-    write_string_attr(43, 8, buf, COL_BLACK_CYAN);
-    
-    // sprintf(buf, "Vol : %3d", volume);
-    strcpy(buf, "Vol : ");
-    itoa3(buf + 6, volume);
-    write_string_attr(43, 9, buf, COL_BLACK_CYAN);
+    if(!update)
+    {
+        strcpy(buf, "Spd : "); itoa2(buf + 6, module->sngspd);
+        write_string_attr(43, 6, buf, COL_BLACK_CYAN);
 
-    // Song progress bar
+        strcpy(buf, "BPM : "); itoa3(buf + 6, module->bpm);
+        write_string_attr(43, 7, buf, COL_BLACK_CYAN);
+    }
+
+    strcpy(buf, "Chan: "); itoa2(buf + 6, active_channels); buf[8] = '/'; itoa2(buf + 9, module->numchn); buf[11] = '\0';
+    write_string_attr(43, 8, buf, COL_BLACK_CYAN);
+    
+    strcpy(buf, "Vol : "); itoa3(buf + 6, volume);
+    write_string_attr(43, 10, buf, COL_BLACK_CYAN);
+
+    // Song progress
     for (i = 0; i < 20; i++) write_char_attr(56 + i, 4, i < progress_level ? CH_BLOCK : 196, i < progress_level ? 0x08 : 0x08);
 
-    // Row progress bar
+    // Row progress
     for (i = 0; i < 20; i++) write_char_attr(56 + i, 5, i < row_level ? CH_BLOCK : 196, i < row_level ? 0x09 : 0x08);
+
+    // 20 channels indication   
+    for (i = 0; i < 20; i++)
+    {
+        unsigned char attr = (active_channel_bar[i] == 254) ? 0x0A : 0x08;
+        write_char_attr(56 + i, 8, active_channel_bar[i], attr);
+    }
     
     // VU meter
-    for (i = 0; i < 20; i++) write_char_attr(56 + i, 9, i < vu_level ? CH_BLOCK : 196, i < vu_level ? 0x08 : 0x08);
+    for (i = 0; i < 20; i++) write_char_attr(56 + i, 10, i < vu_level ? CH_BLOCK : 196, i < vu_level ? 0x08 : 0x08);
 }
 
-void draw_pattern_viewer(MODULE *module)
+void draw_file_browser()
 {
-    char buf[80];
-    int ch, y; //, row;
-    int visible_channels = module->numchn;
-    int start_ch = g_channel_offset;
-    int col_width = 9;
-    
-    if (visible_channels > g_max_visible_channels)
-    {
-        visible_channels = g_max_visible_channels;
-    }
-    
-    draw_box(1, 12, 78, 22, COL_BLACK_CYAN);
-    sprintf(buf, "Pattern [Ch %d-%d/%d] TAB=Comment", 
-            start_ch + 1, 
-            start_ch + visible_channels, 
-            module->numchn);
-    write_string_attr(3, 12, buf, COL_YELLOW_CYAN);
-    
-    // Channel headers
-    y = 13;
-    for (ch = 0; ch < visible_channels && (start_ch + ch) < module->numchn; ch++)
-    {
-        int is_ch_active = 0;
-        int voice_ch = start_ch + ch;
-        
-        if (voice_ch < module->numvoices && !Voice_Stopped(voice_ch))
-        {
-            is_ch_active = 1;
-        }
-        
-        sprintf(buf, "Ch%02d", start_ch + ch + 1);
-        write_string_attr(6 + ch * col_width, y, buf, is_ch_active ? 0x0A : COL_BLACK_CYAN);
-    }
-    
-    // Current row and surrounding rows
-    /*
-    y = 14;
-    for (row = -3; row <= 3 && y < 22; row++, y++)
-    {
-        int actual_row = module->patpos + row;
-        unsigned char attr = (row == 0) ? COL_WHITE_CYAN : COL_BLACK_CYAN;
-        
-        if (actual_row >= 0 && actual_row < 64)
-        {
-            sprintf(buf, "%02d", actual_row);
-            write_string_attr(3, y, buf, row == 0 ? COL_YELLOW_CYAN : COL_BLACK_CYAN);
-        }
-        
-        for (ch = 0; ch < visible_channels && (start_ch + ch) < module->numchn; ch++)
-        {
-            if (actual_row >= 0 && actual_row < 64)
-            {
-                int is_active = 0;
-                int voice_ch = start_ch + ch;
-                
-                if (row == 0 && voice_ch < module->numvoices && !Voice_Stopped(voice_ch))
-                {
-                    is_active = 1;
-                }
-                
-                if (is_active)
-                {
-                    // Show active with note placeholder
-                    write_string_attr(6 + ch * col_width, y, "C-4 64", 0x0A);
-                }
-                else
-                {
-                    // Show inactive placeholder
-                    write_string_attr(6 + ch * col_width, y, "... ..", attr);
-                }
-            }
-        }
-    }
-    */
-    
-    if (module->numchn > g_max_visible_channels)
-    {
-        write_string_attr(60, 21, "[<-/-> scroll]", COL_YELLOW_CYAN);
-    }
+    // TODO
 }
 
 void draw_comment_panel(MODULE *module)
@@ -407,14 +314,10 @@ void draw_comment_panel(MODULE *module)
 
 void draw_main_panel(MODULE *module)
 {
-    if (g_view_mode == 0)
-    {
-        draw_pattern_viewer(module);
-    }
-    else
-    {
-        draw_comment_panel(module);
-    }
+    /*if (g_view_mode == 0) draw_pattern_viewer(module);
+    else draw_comment_panel(module);
+    */
+    draw_comment_panel(module);
 }
 
 void draw_ui(MODULE *module, int volume, char *s_profile)
@@ -452,9 +355,10 @@ int process_keyboard(MODULE *module, int volume)
         else if (ch == 'q' || ch == 'Q') return 0;
         else if (ch == 9) // TAB
         {
-            g_view_mode = (g_view_mode == 0) ? 1 : 0;
+            /*g_view_mode = (g_view_mode == 0) ? 1 : 0;
             g_channel_offset = 0;
             g_comment_scroll = 0;
+            */
             draw_main_panel(module);
         }
         else if (ch == ' ')
@@ -621,8 +525,11 @@ int main(int argc, char *argv[])
     }
 
     printf("BLASTER=%s\n", getenv("BLASTER"));
-    printf("Supported: \n%s\n", MikMod_InfoDriver());
-    printf("Active driver index: %d\n", md_device);
+    if(audio_verbose)
+    {
+        printf("Supported: \n%s\n", MikMod_InfoDriver());
+        printf("Active driver index: %d\n", md_device);
+    }
     printf("Audio output (%s): %dHz, %s, %d voices max\n", s_profile, mix_freq, force_mono ? "mono" : "stereo", max_voices);
     
     if (stat(filename, &file_info) == 0)
@@ -686,7 +593,7 @@ int main(int argc, char *argv[])
     Player_Start(g_module);
     Player_SetVolume(current_volume);
 
-    _displaycursor(_GCURSOROFF);
+    _settextcursor(0x2000);
     draw_ui(g_module, current_volume, s_profile);
 
     while (process_keyboard(g_module, current_volume)) 
@@ -704,7 +611,7 @@ int main(int argc, char *argv[])
     }
     
     // Cleanup
-    _displaycursor(_GCURSORON);
+    _settextcursor(1543);
     _clearscreen(_GCLEARSCREEN);
     printf("Thanks for using MIKPLAY!\nMore info at https://github.com/izne/MikPlayer\n\n");
     Player_Stop();
