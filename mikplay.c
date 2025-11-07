@@ -63,6 +63,8 @@
 #define COL_YELLOW_BLACK 0x0E    // Yellow on black
 #define COL_LGRAY_BLACK  0x07    // Light gray on black
 
+#define MAX_VOICES_CAP 128
+
 // Global vars
 MODULE *g_module = NULL;
 int g_comment_scroll = 0;
@@ -77,6 +79,15 @@ char *filename;
 long file_size;
 int audio_verbose = 0;
 extern MDRIVER *md_driver;
+
+// JIJEI
+float pitch_factor = 1.0;
+int pitch_percent = 0;
+ULONG voice_base_freq[MAX_VOICES_CAP];
+unsigned char voice_base_set[MAX_VOICES_CAP];
+
+
+
 
 void write_char_attr(int x, int y, unsigned char ch, unsigned char attr)
 {
@@ -352,6 +363,25 @@ int process_keyboard(MODULE *module, int volume)
         int ch = getch();
         
         if (ch == 27) return 0; // ESC
+        else if (ch == 'd' || ch == 'D') // reset pitch
+        {
+            pitch_factor = 1.0f;
+            //update_ui(g_module, current_volume);
+        }
+        else if (ch == '[' || ch == '{')  // pitch down
+        {
+            pitch_percent -= 1;
+            if (pitch_percent < -50) pitch_percent = -50;
+            pitch_factor = 1.0f + (pitch_percent / 100.0f);
+            //update_ui(g_module, current_volume);
+        }
+        else if (ch == ']' || ch == '}')  // pitch up
+        {
+            pitch_percent += 1;
+            if (pitch_percent > 100) pitch_percent = 100;
+            pitch_factor = 1.0f + (pitch_percent / 100.0f);
+            //update_ui(g_module, current_volume);
+        }
         else if (ch == 'q' || ch == 'Q') return 0;
         else if (ch == 9) // TAB
         {
@@ -436,6 +466,48 @@ int process_keyboard(MODULE *module, int volume)
         }
     }
     return 1;
+}
+
+void PitchControlCallback(void)
+{
+
+    if (pitch_factor != 1.0f) Player_SetTempo((int)(g_module->bpm * pitch_factor));
+
+    // Fast-path: if no pitch change, nothing to do (avoids touching voices too often)
+    if (pitch_factor == 1.0f)
+    {
+        // still need to clear any stale base markers for stopped voices
+        for (int i = 0; i < g_module->numvoices && i < MAX_VOICES_CAP; ++i)
+            if (Voice_Stopped(i) && voice_base_set[i]) voice_base_set[i] = 0;
+
+        return;
+    }
+
+    for (int i = 0; i < g_module->numvoices && i < MAX_VOICES_CAP; ++i)
+    {
+        if (Voice_Stopped(i))
+        {
+            // voice ended ? clear stored base so new notes will capture a fresh base
+            if (voice_base_set[i]) voice_base_set[i] = 0;
+
+            continue;
+        }
+
+        if (!voice_base_set[i])
+        {
+            // store the engine's base frequency for this voice once
+            voice_base_freq[i] = Voice_GetFrequency(i);
+            voice_base_set[i] = 1;
+        }
+
+        // compute new frequency from stable base (avoid compounding)
+        double newf_d = (double)voice_base_freq[i] * (double)pitch_factor;
+        if (newf_d < 1.0) newf_d = 1.0; // clamp to avoid 0
+        if (newf_d > 4294967295.0) newf_d = 4294967295.0; //  clamp to ULONG max
+
+        ULONG newf = (ULONG)newf_d;
+        Voice_SetFrequency(i, newf);
+    }
 }
 
 int main(int argc, char *argv[])
@@ -524,9 +596,10 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    printf("BLASTER=%s\n", getenv("BLASTER"));
+    
     if(audio_verbose)
     {
+        printf("Environment BLASTER=%s\n", getenv("BLASTER"));
         printf("Supported: \n%s\n", MikMod_InfoDriver());
         printf("Active driver index: %d\n", md_device);
     }
@@ -600,6 +673,9 @@ int main(int argc, char *argv[])
     {
         clock_t now = clock();
         MikMod_Update();
+        
+        // Pitch control callback - in progress
+        //PitchControlCallback();
 
         if (now - last_update >= update_interval)
         {
