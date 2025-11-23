@@ -34,7 +34,7 @@
 
 #define MEM_LOAD_THRESHOLD 6291456
 #define VER_MAJ 0
-#define VER_MIN 7
+#define VER_MIN 71
 #define VER_STR "retrohw"
 
 // IBM Chars (CP437)
@@ -66,6 +66,7 @@
 
 #define MAX_VOICES_CAP 128
 #define MAX_IND 20
+#define VOICE_QUERY_INTERVAL 4
 
 // Global vars
 MODULE *g_module = NULL;
@@ -97,34 +98,16 @@ ULONG voice_base_freq[MAX_VOICES_CAP];
 unsigned char voice_base_set[MAX_VOICES_CAP];
 
 
-
-/*
-void write_char_attr(int x, int y, unsigned char ch, unsigned char attr)
+static inline void write_char_attr(int x, int y, unsigned char ch, unsigned char attr)
 {
-    unsigned short *vram = (unsigned short *)0xB8000;
-    vram[y * 80 + x] = (attr << 8) | ch;
-}
-*/
-
-static inline void write_char_attr(int x, int y, unsigned char ch, unsigned char attr) {
     vram_base[y * 80 + x] = (attr << 8) | ch;
 }
 
-/*
-void write_string_attr(int x, int y, const char *str, unsigned char attr)
+void write_string_attr(int x, int y, const char *s, unsigned char attr)
 {
-    while (*str)
-    {
-        write_char_attr(x++, y, *str++, attr);
-    }
-}
-*/
-
-void write_string_attr(int x, int y, const char *s, unsigned char attr) {
     unsigned short *p = vram_base + y*80 + x;
-    while (*s) {
+    while (*s)
         *p++ = (attr << 8) | *s++;
-    }
 }
 
 void fill_rect(int x1, int y1, int x2, int y2, unsigned char ch, unsigned char attr)
@@ -135,19 +118,49 @@ void fill_rect(int x1, int y1, int x2, int y2, unsigned char ch, unsigned char a
             write_char_attr(x, y, ch, attr);
 }
 
+static const char digits[] = "0123456789";
+
 static inline void itoa2(char *buf, int val)
 {
-    buf[0] = '0' + (val / 10);
-    buf[1] = '0' + (val % 10);
+    buf[0] = digits[val / 10];
+    buf[1] = digits[val % 10];
     buf[2] = '\0';
 }
 
 static inline void itoa3(char *buf, int val)
 {
-    buf[0] = '0' + (val / 100);
-    buf[1] = '0' + ((val / 10) % 10);
-    buf[2] = '0' + (val % 10);
+    buf[0] = digits[val / 100];
+    buf[1] = digits[(val / 10) % 10];
+    buf[2] = digits[val % 10];
     buf[3] = '\0';
+}
+
+void writef(char *buf, int x, int y, const char *label, int val1, int val2, int digits)
+{
+    int val_start = strlen(label); 
+    strcpy(buf, label); 
+
+    if (digits == 3) // format 1: XXX/YYY
+    {
+        itoa3(buf + val_start, val1);
+        buf[val_start + 3] = '/';
+        itoa3(buf + val_start + 4, val2);
+        buf[val_start + 7] = '\0'; 
+    }
+    else if (digits == 2) // format 2: XX/YY
+    {
+        itoa2(buf + val_start, val1);
+        buf[val_start + 2] = '/';
+        itoa2(buf + val_start + 3, val2);
+        buf[val_start + 5] = '\0';
+    }
+    else if (digits == 1) // format 3: XXX (Single Value)
+    {
+        itoa3(buf + val_start, val1);
+        buf[val_start + 3] = '\0';
+    }
+
+    write_string_attr(x, y, buf, COL_BLACK_CYAN);
 }
 
 void draw_box(int x1, int y1, int x2, int y2, unsigned char attr)
@@ -235,17 +248,22 @@ void draw_playback_panel(const MODULE *module, int volume, int update)
     static VOICEINFO voice_info[MAX_VOICES_CAP]; //64 or MAX_VOICES_CAP or module->numvoices ?
     unsigned char sample_active[MAX_VOICES_CAP] = {0};
     unsigned char instrument_active[MAX_VOICES_CAP] = {0};
-    //Player_QueryVoices(module->numvoices, voice_info);
-    Player_QueryVoices((num_voices > MAX_VOICES_CAP) ? MAX_VOICES_CAP : num_voices, voice_info);
+    static int query_counter = 0;
+    unsigned char attr;
 
+    
+    if (++query_counter >= VOICE_QUERY_INTERVAL) // every 4th frame only
+    {
+        Player_QueryVoices((num_voices > MAX_VOICES_CAP) ? MAX_VOICES_CAP : num_voices, voice_info);
+        query_counter = 0;
+    }
+    
 
     // active channel/sample/instrument bar placeholders
     memset(active_channel_bar, CH_HLINE, MAX_IND);
     active_channel_bar[MAX_IND] = '\0';
-
     memset(active_sample_bar, CH_HLINE, MAX_IND);
     active_sample_bar[MAX_IND] = '\0';
-
     memset(active_instrument_bar, CH_HLINE, MAX_IND);
     active_instrument_bar[MAX_IND] = '\0';
 
@@ -264,6 +282,7 @@ void draw_playback_panel(const MODULE *module, int volume, int update)
             {
                 active_sample_bar[sample_idx] = CH_IND;
                 sample_active[sample_idx] = 1;
+                active_samples++;
             }
         }
 
@@ -274,6 +293,7 @@ void draw_playback_panel(const MODULE *module, int volume, int update)
             {
                 active_instrument_bar[inst_idx] = CH_IND;
                 instrument_active[inst_idx] = 1;
+                active_instruments++;
             }
         }
 
@@ -300,25 +320,13 @@ void draw_playback_panel(const MODULE *module, int volume, int update)
         write_string_attr(43, 3, "Playback", COL_YELLOW_CYAN);
     }
 
-    strcpy(buf, "Patt: "); itoa3(buf + 6, module->sngpos); buf[9] = '/'; itoa3(buf + 10, module->numpos - 1); buf[13] = '\0';
-    write_string_attr(43, 4, buf, COL_BLACK_CYAN);
-    
-    strcpy(buf, "Row : "); itoa3(buf + 6, module->patpos);
-    write_string_attr(43, 5, buf, COL_BLACK_CYAN);
+    writef(buf, 43, 4, "Patt: ", module->sngpos, module->numpos - 1, 3);
+    writef(buf, 43, 5, "Row : ", module->patpos, NULL, 1);
+    writef(buf, 43, 7, "Inst: ", active_instruments, module->numins, 2);
+    writef(buf, 43, 8, "Chan: ", active_channels, module->numchn, 2);
+    writef(buf, 43, 9, "Samp: ", active_samples, module->numsmp, 2);
+    writef(buf, 43, 10, "Vol : ", volume, NULL, 1);
 
-    strcpy(buf, "Inst: "); itoa2(buf + 6, active_instruments); buf[8] = '/'; itoa2(buf + 9, module->numins); buf[11] = '\0';
-    write_string_attr(43, 7, buf, COL_BLACK_CYAN);
-
-    strcpy(buf, "Chan: "); itoa2(buf + 6, active_channels); buf[8] = '/'; itoa2(buf + 9, module->numchn); buf[11] = '\0';
-    write_string_attr(43, 8, buf, COL_BLACK_CYAN);
-
-    strcpy(buf, "Samp: "); itoa2(buf + 6, active_samples); buf[8] = '/'; itoa2(buf + 9, module->numsmp); buf[11] = '\0';
-    write_string_attr(43, 9, buf, COL_BLACK_CYAN);
-
-    strcpy(buf, "Vol : "); itoa3(buf + 6, volume);
-    write_string_attr(43, 10, buf, COL_BLACK_CYAN);
-
-    unsigned char attr;
     for (i = 0; i < MAX_IND; i++)
     {
         // song progress
@@ -341,10 +349,10 @@ void draw_playback_panel(const MODULE *module, int volume, int update)
 
         // VU meter
         int ccol =
-        (i < 3)  ? 0x07 :     // gray
-        (i < 15) ? 0x1A :     // green
-        (i < 18) ? 0x1E :     // yellow
-                   0x1C;      // red
+        (i < 3)  ? 0x08 :     // gray
+        (i < 15) ? 0x02 :     // green
+        (i < 18) ? 0x06 :     // yellow
+                   0x04;      // red
         write_char_attr(57 + i, 10, i < vu_level ? CH_BLOCK : CH_HLINE, i < vu_level ? ccol : 0x08);
     }
 }
@@ -780,7 +788,7 @@ int main(int argc, char *argv[])
     // Cleanup
     _settextcursor(1543);
     _clearscreen(_GCLEARSCREEN);
-    printf("Having fun?\nMore info at https://github.com/izne/MikPlayer\n\n");
+    printf("Having fun? More info at https://github.com/izne/MikPlayer\n\n");
     Player_Stop();
     Player_Free(g_module);
     MikMod_Exit();
