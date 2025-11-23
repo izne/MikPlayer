@@ -199,7 +199,7 @@ void draw_info_panel(MODULE *module)
 void draw_playback_panel(MODULE *module, int volume, int update)
 {
     char buf[80];
-    int i, j, vu_level, max_volume = 0;
+    int i, vu_level = 0, max_volume = 0;
     int active_channels = 0, active_samples = 0, active_instruments = 0;
     int progress_level, row_level, vol;
     int current_pattern = module->sngpos;
@@ -208,12 +208,11 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     char active_channel_bar[MAX_IND + 1]; // MAX_IND chars + null terminator
     char active_sample_bar[MAX_IND + 1];
     char active_instrument_bar[MAX_IND + 1];
-    int instrument_activity[MAX_IND] = {0}; 
 
     VOICEINFO voice_info[64];
     unsigned char sample_active[128] = {0};
     unsigned char instrument_active[128] = {0};
-    int num_active = Player_QueryVoices(module->numvoices, voice_info);
+    Player_QueryVoices(module->numvoices, voice_info);
 
 
     // Active channel bar placeholder
@@ -229,7 +228,7 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     active_instrument_bar[MAX_IND] = '\0';
 
 
-    for (i = 0; i < num_active; i++)
+    for (i = 0; i < num_voices; i++)
     {
 
         if (Voice_Stopped(i)) continue;  // skip them stopped voices
@@ -237,48 +236,36 @@ void draw_playback_panel(MODULE *module, int volume, int update)
 
         vol = Voice_GetVolume(i); //vol = voice_info[i].volume;
         active_channels++;
-
-        if (voice_info[i].s != NULL)
+        
+        if (voice_info[i].s != NULL) // samples
         {
-            for (j = 0; j < module->numsmp && j < 128; j++) // samples
+            // Calculate index directly from pointer
+            int sample_idx = (int)(voice_info[i].s - module->samples);
+            if (sample_idx >= 0 && sample_idx < module->numsmp && sample_idx < MAX_IND)
             {
-                if (&module->samples[j] == voice_info[i].s)
-                {
-                    if (j < MAX_IND) 
-                    {
-                        active_sample_bar[j] = CH_IND;
-                        sample_active[j] = 1;
-                    }
-                    break;
-                }
-            }
-
-            for (j = 0; j < module->numins && j < 128; j++) // instruments
-            {
-                if (&module->instruments[j] == voice_info[i].i)
-                {
-                    if (j < MAX_IND)
-                    {
-                        active_instrument_bar[j] = CH_IND;
-                        instrument_active[j] = 1;
-                    }
-                    break;
-                }
+                active_sample_bar[sample_idx] = CH_IND;
+                sample_active[sample_idx] = 1;
             }
         }
 
-        if (vol > max_volume) max_volume = vol * 4; // Scale 0-64 to 0-256
+        if (voice_info[i].i != NULL) // instruments
+        {
+            int inst_idx = (int)(voice_info[i].i - module->instruments);
+            if (inst_idx >= 0 && inst_idx < module->numins && inst_idx < MAX_IND)
+            {
+                active_instrument_bar[inst_idx] = CH_IND;
+                instrument_active[inst_idx] = 1;
+            }
+        }
+
+        if (vol > max_volume) max_volume = vol;
     }
     
-    // Count active samples/instruments
     for (i = 0; i < MAX_IND; i++)
     {
         if (sample_active[i]) active_samples++;
         if (instrument_active[i]) active_instruments++;
     }
-    //-----
-
-
 
 
     // VU interpolation (MAX_IND bars)
@@ -347,7 +334,7 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     }
     
     // VU meter
-    for (i = 0; i < MAX_IND; i++) write_char_attr(57 + i, 10, i < vu_level ? CH_BLOCK : CH_HLINE, i < vu_level ? 0x12 : 0x08);
+    for (i = 0; i < MAX_IND; i++) write_char_attr(57 + i, 10, i < vu_level ? CH_BLOCK : CH_HLINE, i < vu_level ? 0x14 : 0x08);
 }
 
 void draw_file_browser()
@@ -547,7 +534,6 @@ void PitchControlCallback(void)
 
     if (pitch_factor != 1.0f) Player_SetTempo((int)(g_module->bpm * pitch_factor));
 
-    // Fast-path: if no pitch change, nothing to do (avoids touching voices too often)
     if (pitch_factor == 1.0f)
     {
         // still need to clear any stale base markers for stopped voices
@@ -561,20 +547,19 @@ void PitchControlCallback(void)
     {
         if (Voice_Stopped(i))
         {
-            // voice ended ? clear stored base so new notes will capture a fresh base
-            if (voice_base_set[i]) voice_base_set[i] = 0;
+            if (voice_base_set[i]) voice_base_set[i] = 0; // stored base so new notes will capture a fresh base
 
             continue;
         }
 
         if (!voice_base_set[i])
         {
-            // store the engine's base frequency for this voice once
+            // store base frequency once
             voice_base_freq[i] = Voice_GetFrequency(i);
             voice_base_set[i] = 1;
         }
 
-        // compute new frequency from stable base (avoid compounding)
+        // new frequency from stable base
         double newf_d = (double)voice_base_freq[i] * (double)pitch_factor;
         if (newf_d < 1.0) newf_d = 1.0; // clamp to avoid 0
         if (newf_d > 4294967295.0) newf_d = 4294967295.0; //  clamp to ULONG max
