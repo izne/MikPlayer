@@ -215,22 +215,18 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     Player_QueryVoices(module->numvoices, voice_info);
 
 
-    // Active channel bar placeholder
+    // active channel/sample/instrument bar placeholders
     memset(active_channel_bar, CH_HLINE, MAX_IND);
     active_channel_bar[MAX_IND] = '\0';
 
-    // Active sample bar placeholder
     memset(active_sample_bar, CH_HLINE, MAX_IND);
     active_sample_bar[MAX_IND] = '\0';
 
-    // Active instrument bar placeholder
     memset(active_instrument_bar, CH_HLINE, MAX_IND);
     active_instrument_bar[MAX_IND] = '\0';
 
-
     for (i = 0; i < num_voices; i++)
     {
-
         if (Voice_Stopped(i)) continue;  // skip them stopped voices
         if (i < MAX_IND) active_channel_bar[i] = CH_IND;
 
@@ -239,7 +235,6 @@ void draw_playback_panel(MODULE *module, int volume, int update)
         
         if (voice_info[i].s != NULL) // samples
         {
-            // Calculate index directly from pointer
             int sample_idx = (int)(voice_info[i].s - module->samples);
             if (sample_idx >= 0 && sample_idx < module->numsmp && sample_idx < MAX_IND)
             {
@@ -268,15 +263,15 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     }
 
 
-    // VU interpolation (MAX_IND bars)
+    // VU interpolation
     vu_level = (max_volume * MAX_IND) / 256;
     if (vu_level > MAX_IND) vu_level = MAX_IND;
 
-    // Song position interpolation (MAX_IND bars)
+    // song position
     if (module->numpos > 1) progress_level = (module->sngpos * MAX_IND) / (module->numpos - 1);
     else progress_level = 0;
 
-    // Rows for current pattern
+    // row position
     if (current_pattern < module->numpat && module->pattrows)  max_rows = module->pattrows[current_pattern];
     if (max_rows > 0) row_level = (module->patpos * MAX_IND) / (max_rows - 1);
     else row_level = 0;
@@ -306,32 +301,32 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     strcpy(buf, "Vol : "); itoa3(buf + 6, volume);
     write_string_attr(43, 10, buf, COL_BLACK_CYAN);
 
-    // Loop max indicators
+
     for (i = 0; i < MAX_IND; i++)
     {
+        unsigned char attr;
+
         // song progress
         write_char_attr(57 + i, 4, i < progress_level ? CH_BLOCK : CH_HLINE, i < progress_level ? 0x08 : 0x08);
 
-        // rows 
+        // rows progress
         write_char_attr(57 + i, 5, i < row_level ? CH_BLOCK : CH_HLINE, i < row_level ? 0x09 : 0x08);
 
         // instr
-        unsigned char attr = (active_instrument_bar[i] == CH_IND) ? 0x0D : 0x08;
+        attr = (active_instrument_bar[i] == CH_IND) ? 0x0D : 0x08;
         write_char_attr(57 + i, 7, active_instrument_bar[i], attr);
 
-        // chann
-        unsigned char attr = (active_channel_bar[i] == CH_IND) ? 0x0A : 0x08;
+        // chan
+        attr = (active_channel_bar[i] == CH_IND) ? 0x0A : 0x08;
         write_char_attr(57 + i, 8, active_channel_bar[i], attr);
 
         // samps
-        unsigned char attr = (active_sample_bar[i] == CH_IND) ? 0x0E : 0x08;
+        attr = (active_sample_bar[i] == CH_IND) ? 0x0E : 0x08;
         write_char_attr(57 + i, 9, active_sample_bar[i], attr);
 
         // VU meter
-        write_char_attr(57 + i, 10, i < vu_level ? CH_BLOCK : CH_HLINE, i < vu_level ? 0x14 : 0x08);
+        write_char_attr(57 + i, 10, i < vu_level ? CH_BLOCK : CH_HLINE, i < vu_level ? 0x1B : 0x08);
     }
-   
-    
 }
 
 void draw_file_browser()
@@ -569,7 +564,7 @@ void PitchControlCallback(void)
 int main(int argc, char *argv[])
 {
     clock_t last_update = 0;
-    int update_interval = CLOCKS_PER_SEC / 12; // 8 times per second
+    int update_interval = CLOCKS_PER_SEC / 12; // 12 times per second
     struct stat file_info;
     int use_memory_load = 0;
     char *s_profile = "default";
@@ -600,7 +595,7 @@ int main(int argc, char *argv[])
             mix_freq = 11025;
             max_voices = 8;
             force_mono = 1;
-            update_interval = CLOCKS_PER_SEC / 4; // 4x per second
+            update_interval = CLOCKS_PER_SEC / 4; // 4 times per second
             s_profile = "386";
         }
         else if (strcmp(argv[i], "-486") == 0)
