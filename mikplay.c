@@ -70,6 +70,7 @@
 // Global vars
 MODULE *g_module = NULL;
 int g_comment_scroll = 0;
+int g_comment_end = 0;
 int g_view_mode = 1; // 0=browser, 1=comments //TODO: make ENUM for that
 int g_channel_offset = 0;
 int g_max_visible_channels = 8;
@@ -81,6 +82,13 @@ char *filename;
 long file_size;
 int audio_verbose = 0;
 extern MDRIVER *md_driver;
+static unsigned short *vram_base = (unsigned short *)0xB8000;
+
+// looping
+bool loop_enabled = false;
+int loop_start = 42;
+int loop_end = 46;
+
 
 // JIJEI
 float pitch_factor = 1.0;
@@ -90,18 +98,32 @@ unsigned char voice_base_set[MAX_VOICES_CAP];
 
 
 
-
+/*
 void write_char_attr(int x, int y, unsigned char ch, unsigned char attr)
 {
     unsigned short *vram = (unsigned short *)0xB8000;
     vram[y * 80 + x] = (attr << 8) | ch;
 }
+*/
 
+static inline void write_char_attr(int x, int y, unsigned char ch, unsigned char attr) {
+    vram_base[y * 80 + x] = (attr << 8) | ch;
+}
+
+/*
 void write_string_attr(int x, int y, const char *str, unsigned char attr)
 {
     while (*str)
     {
         write_char_attr(x++, y, *str++, attr);
+    }
+}
+*/
+
+void write_string_attr(int x, int y, const char *s, unsigned char attr) {
+    unsigned short *p = vram_base + y*80 + x;
+    while (*s) {
+        *p++ = (attr << 8) | *s++;
     }
 }
 
@@ -176,6 +198,7 @@ void draw_status_bar(const char *text)
 void draw_info_panel(MODULE *module)
 {
     char buf[80];
+    const char *drvname = (md_driver && md_driver->Name) ? md_driver->Name : "unknown";
     
     draw_box(1, 3, 40, 11, COL_BLACK_CYAN);
     write_string_attr(3, 3, "Info", COL_YELLOW_CYAN);
@@ -192,7 +215,7 @@ void draw_info_panel(MODULE *module)
     write_string_attr(3, 8, buf, COL_BLACK_CYAN);
     sprintf(buf, "Out  : %dHz, %s, %d voices", mix_freq, force_mono ? "mono" : "stereo", max_voices);
     write_string_attr(3, 9, buf, COL_BLACK_CYAN);
-    sprintf(buf, "Drv  : %s", md_driver->Name);
+    sprintf(buf, "Drv  : %s", drvname);
     write_string_attr(3, 10, buf, COL_BLACK_CYAN);
 }
 
@@ -212,7 +235,8 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     VOICEINFO voice_info[MAX_VOICES_CAP]; //64 or MAX_VOICES_CAP or module->numvoices ?
     unsigned char sample_active[MAX_VOICES_CAP] = {0};
     unsigned char instrument_active[MAX_VOICES_CAP] = {0};
-    Player_QueryVoices(module->numvoices, voice_info);
+    //Player_QueryVoices(module->numvoices, voice_info);
+    Player_QueryVoices((num_voices > MAX_VOICES_CAP) ? num_voices : MAX_VOICES_CAP, voice_info);
 
 
     // active channel/sample/instrument bar placeholders
@@ -230,7 +254,7 @@ void draw_playback_panel(MODULE *module, int volume, int update)
         if (Voice_Stopped(i)) continue;  // skip them stopped voices
         if (i < MAX_IND) active_channel_bar[i] = CH_IND;
 
-        vol = Voice_GetVolume(i); //vol = voice_info[i].volume;
+        vol = voice_info[i].volume;
         active_channels++;
         
         if (voice_info[i].s != NULL) // samples
@@ -253,7 +277,7 @@ void draw_playback_panel(MODULE *module, int volume, int update)
             }
         }
 
-        if (vol > max_volume) max_volume = vol;
+        if (vol > max_volume) max_volume = vol * 4;
         if (sample_active[i]) active_samples++;
         if (instrument_active[i]) active_instruments++;
     }
@@ -363,6 +387,12 @@ void draw_comment_panel(MODULE *module)
         // Skip CR/LF
         if (comment[i] == '\r') i++;
         if (comment[i] == '\n') i++;
+
+        // end at \0
+        if (comment[i] == '\0') 
+            g_comment_end = 1;
+        else
+            g_comment_end = 0;
         
         write_string_attr(3, y++, line, COL_BLACK_CYAN);
         line_count++;
@@ -413,6 +443,10 @@ int process_keyboard(MODULE *module, int volume)
         {
             pitch_factor = 1.0f;
             //update_ui(g_module, current_volume);
+        }
+        else if (ch == 'l' || ch == 'L') // Loop mode
+        {
+            loop_enabled = !loop_enabled;
         }
         else if (ch == '[' || ch == '{')  // pitch down
         {
@@ -505,7 +539,7 @@ int process_keyboard(MODULE *module, int volume)
             {
                 if (g_view_mode == 1)
                 {
-                    g_comment_scroll++;
+                    if(!g_comment_end) g_comment_scroll++;
                     draw_main_panel(module);
                 }
             }
@@ -556,12 +590,13 @@ void PitchControlCallback(void)
 
 int main(int argc, char *argv[])
 {
-    clock_t last_update = 0;
+    clock_t now = 0, last_update = 0;
     int update_interval = CLOCKS_PER_SEC / 10; // 10 times per second
     struct stat file_info;
     int use_memory_load = 0;
     char *s_profile = "default";
     int i;
+
 
     printf("\nMikPlayer, ver.%d.%d-%s\n(c) 2025 Dimitar Angelov\n\n", VER_MAJ, VER_MIN, VER_STR);
     
@@ -655,7 +690,7 @@ int main(int argc, char *argv[])
     if (stat(filename, &file_info) == 0)
     {
         file_size = file_info.st_size;
-        if (file_size < MEM_LOAD_THRESHOLD) use_memory_load = 1;
+        use_memory_load = (file_size > 0 && file_size < MEM_LOAD_THRESHOLD);
     } else
         file_size = 0;
 
@@ -716,13 +751,18 @@ int main(int argc, char *argv[])
     _settextcursor(0x2000);
     draw_ui(g_module, current_volume, s_profile);
 
+
+
     while (process_keyboard(g_module, current_volume)) 
     {
-        clock_t now = clock();
+        now = clock();
         MikMod_Update();
         
-        // Pitch control callback - in progress
+        // WIP
         //PitchControlCallback();
+
+        // Looping?
+        if (loop_enabled && (g_module->sngpos == loop_end)) Player_SetPosition(loop_start);
 
         if (now - last_update >= update_interval)
         {
@@ -733,6 +773,7 @@ int main(int argc, char *argv[])
         if (!Player_Active()) break;
     }
     
+
     // Cleanup
     _settextcursor(1543);
     _clearscreen(_GCLEARSCREEN);
