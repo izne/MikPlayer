@@ -34,7 +34,7 @@
 
 #define MEM_LOAD_THRESHOLD 6291456
 #define VER_MAJ 0
-#define VER_MIN 6
+#define VER_MIN 7
 #define VER_STR "retrohw"
 
 // IBM Chars (CP437)
@@ -50,6 +50,7 @@
 #define CH_BTEE     193  // Á
 #define CH_CROSS    197  // Å
 #define CH_BLOCK    219  // Û
+#define CH_IND      254
 
 // Colors
 #define COL_CYAN_BLUE    0x31    // Cyan on blue
@@ -64,6 +65,7 @@
 #define COL_LGRAY_BLACK  0x07    // Light gray on black
 
 #define MAX_VOICES_CAP 128
+#define MAX_IND 20
 
 // Global vars
 MODULE *g_module = NULL;
@@ -182,55 +184,116 @@ void draw_info_panel(MODULE *module)
     write_string_attr(3, 4, buf, COL_BLACK_CYAN);
     sprintf(buf, "%s", module->modtype);
     write_string_attr(3, 5, buf, COL_BLACK_CYAN);
-    sprintf(buf, "File    : %s (%.2f KB)", filename, file_size / 1024.0);
+    sprintf(buf, "File : %s (%.2f KB)", filename, file_size / 1024.0);
     write_string_attr(3, 6, buf, COL_BLACK_CYAN);
-    sprintf(buf, "Channels: %02d, Patterns: %d", module->numchn, module->numpos);
+    sprintf(buf, "Chans: %02d, Patts: %d, BPM: %03d", module->numchn, module->numpos, module->bpm);
     write_string_attr(3, 7, buf, COL_BLACK_CYAN);
-    sprintf(buf, "Instrmts: %d, Samples : %d", module->numins, module->numsmp);
+    sprintf(buf, "Instr: %02d, Samps: %d, Spd: %02d", module->numins, module->numsmp, module->sngspd);
     write_string_attr(3, 8, buf, COL_BLACK_CYAN);
-    sprintf(buf, "Output  : %dHz, %s, %d voices", mix_freq, force_mono ? "mono" : "stereo", max_voices);
+    sprintf(buf, "Out  : %dHz, %s, %d voices", mix_freq, force_mono ? "mono" : "stereo", max_voices);
     write_string_attr(3, 9, buf, COL_BLACK_CYAN);
-    sprintf(buf, "Driver  : %s", md_driver->Name);
+    sprintf(buf, "Drv  : %s", md_driver->Name);
     write_string_attr(3, 10, buf, COL_BLACK_CYAN);
 }
 
 void draw_playback_panel(MODULE *module, int volume, int update)
 {
     char buf[80];
-    int i, vu_level, max_volume = 0;
-    int active_channels = 0;
+    int i, j, vu_level, max_volume = 0;
+    int active_channels = 0, active_samples = 0, active_instruments = 0;
     int progress_level, row_level, vol;
     int current_pattern = module->sngpos;
     int max_rows = 64; // fallback
     int num_voices = module->numvoices;
-    char active_channel_bar[21]; // 20 chars + null terminator
+    char active_channel_bar[MAX_IND + 1]; // MAX_IND chars + null terminator
+    char active_sample_bar[MAX_IND + 1];
+    char active_instrument_bar[MAX_IND + 1];
+    int instrument_activity[MAX_IND] = {0}; 
+
+    VOICEINFO voice_info[64];
+    unsigned char sample_active[128] = {0};
+    unsigned char instrument_active[128] = {0};
+    int num_active = Player_QueryVoices(module->numvoices, voice_info);
+
 
     // Active channel bar placeholder
-    memset(active_channel_bar, CH_HLINE, 20);
-    active_channel_bar[20] = '\0';
+    memset(active_channel_bar, CH_HLINE, MAX_IND);
+    active_channel_bar[MAX_IND] = '\0';
 
-    for (i = 0; i < num_voices; i++)
+    // Active sample bar placeholder
+    memset(active_sample_bar, CH_HLINE, MAX_IND);
+    active_sample_bar[MAX_IND] = '\0';
+
+    // Active instrument bar placeholder
+    memset(active_instrument_bar, CH_HLINE, MAX_IND);
+    active_instrument_bar[MAX_IND] = '\0';
+
+
+    for (i = 0; i < num_active; i++)
     {
-        if (Voice_Stopped(i)) continue;
-        if (i < 20) active_channel_bar[i] = 254; // nice little square
-        vol = Voice_GetVolume(i);
+
+        if (Voice_Stopped(i)) continue;  // skip them stopped voices
+        if (i < MAX_IND) active_channel_bar[i] = CH_IND;
+
+        vol = Voice_GetVolume(i); //vol = voice_info[i].volume;
         active_channels++;
-        if (vol > max_volume) max_volume = vol;
+
+        if (voice_info[i].s != NULL)
+        {
+            for (j = 0; j < module->numsmp && j < 128; j++) // samples
+            {
+                if (&module->samples[j] == voice_info[i].s)
+                {
+                    if (j < MAX_IND) 
+                    {
+                        active_sample_bar[j] = CH_IND;
+                        sample_active[j] = 1;
+                    }
+                    break;
+                }
+            }
+
+            for (j = 0; j < module->numins && j < 128; j++) // instruments
+            {
+                if (&module->instruments[j] == voice_info[i].i)
+                {
+                    if (j < MAX_IND)
+                    {
+                        active_instrument_bar[j] = CH_IND;
+                        instrument_active[j] = 1;
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (vol > max_volume) max_volume = vol * 4; // Scale 0-64 to 0-256
     }
+    
+    // Count active samples/instruments
+    for (i = 0; i < MAX_IND; i++)
+    {
+        if (sample_active[i]) active_samples++;
+        if (instrument_active[i]) active_instruments++;
+    }
+    //-----
 
-    // VU interpolation (20 bars)
-    vu_level = (max_volume * 20) / 256;
-    if (vu_level > 20) vu_level = 20;
 
-    // Song position interpolation (20 bars)
-    if (module->numpos > 1) progress_level = (module->sngpos * 20) / (module->numpos - 1);
+
+
+    // VU interpolation (MAX_IND bars)
+    vu_level = (max_volume * MAX_IND) / 256;
+    if (vu_level > MAX_IND) vu_level = MAX_IND;
+
+    // Song position interpolation (MAX_IND bars)
+    if (module->numpos > 1) progress_level = (module->sngpos * MAX_IND) / (module->numpos - 1);
     else progress_level = 0;
 
     // Rows for current pattern
     if (current_pattern < module->numpat && module->pattrows)  max_rows = module->pattrows[current_pattern];
-    if (max_rows > 0) row_level = (module->patpos * 20) / (max_rows - 1);
+    if (max_rows > 0) row_level = (module->patpos * MAX_IND) / (max_rows - 1);
     else row_level = 0;
-    if (row_level > 20) row_level = 20;
+    if (row_level > MAX_IND) row_level = MAX_IND;
     
     if(!update)
     {
@@ -243,37 +306,48 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     
     strcpy(buf, "Row : "); itoa3(buf + 6, module->patpos);
     write_string_attr(43, 5, buf, COL_BLACK_CYAN);
-    
-    if(!update)
-    {
-        strcpy(buf, "Spd : "); itoa2(buf + 6, module->sngspd);
-        write_string_attr(43, 6, buf, COL_BLACK_CYAN);
 
-        strcpy(buf, "BPM : "); itoa3(buf + 6, module->bpm);
-        write_string_attr(43, 7, buf, COL_BLACK_CYAN);
-    }
+    strcpy(buf, "Inst: "); itoa2(buf + 6, active_instruments); buf[8] = '/'; itoa2(buf + 9, module->numins); buf[11] = '\0';
+    write_string_attr(43, 7, buf, COL_BLACK_CYAN);
 
     strcpy(buf, "Chan: "); itoa2(buf + 6, active_channels); buf[8] = '/'; itoa2(buf + 9, module->numchn); buf[11] = '\0';
     write_string_attr(43, 8, buf, COL_BLACK_CYAN);
-    
+
+    strcpy(buf, "Samp: "); itoa2(buf + 6, active_samples); buf[8] = '/'; itoa2(buf + 9, module->numsmp); buf[11] = '\0';
+    write_string_attr(43, 9, buf, COL_BLACK_CYAN);
+
     strcpy(buf, "Vol : "); itoa3(buf + 6, volume);
     write_string_attr(43, 10, buf, COL_BLACK_CYAN);
 
     // Song progress
-    for (i = 0; i < 20; i++) write_char_attr(57 + i, 4, i < progress_level ? CH_BLOCK : 196, i < progress_level ? 0x08 : 0x08);
+    for (i = 0; i < MAX_IND; i++) write_char_attr(57 + i, 4, i < progress_level ? CH_BLOCK : CH_HLINE, i < progress_level ? 0x08 : 0x08);
 
     // Row progress
-    for (i = 0; i < 20; i++) write_char_attr(57 + i, 5, i < row_level ? CH_BLOCK : 196, i < row_level ? 0x09 : 0x08);
+    for (i = 0; i < MAX_IND; i++) write_char_attr(57 + i, 5, i < row_level ? CH_BLOCK : CH_HLINE, i < row_level ? 0x09 : 0x08);
+
+    // 20 instruments indication
+    for (i = 0; i < MAX_IND; i++)
+    {
+        unsigned char attr = (active_instrument_bar[i] == CH_IND) ? 0x0D : 0x08;  // Yellow
+        write_char_attr(57 + i, 7, active_instrument_bar[i], attr);
+    }
 
     // 20 channels indication   
-    for (i = 0; i < 20; i++)
+    for (i = 0; i < MAX_IND; i++)
     {
-        unsigned char attr = (active_channel_bar[i] == 254) ? 0x0A : 0x08;
+        unsigned char attr = (active_channel_bar[i] == CH_IND) ? 0x0A : 0x08;
         write_char_attr(57 + i, 8, active_channel_bar[i], attr);
+    }
+
+    // 20 samples indication
+    for (i = 0; i < MAX_IND; i++)
+    {
+        unsigned char attr = (active_sample_bar[i] == CH_IND) ? 0x0E : 0x08;  // Yellow when active
+        write_char_attr(57 + i, 9, active_sample_bar[i], attr);
     }
     
     // VU meter
-    for (i = 0; i < 20; i++) write_char_attr(57 + i, 10, i < vu_level ? CH_BLOCK : 196, i < vu_level ? 0x08 : 0x08);
+    for (i = 0; i < MAX_IND; i++) write_char_attr(57 + i, 10, i < vu_level ? CH_BLOCK : CH_HLINE, i < vu_level ? 0x12 : 0x08);
 }
 
 void draw_file_browser()
