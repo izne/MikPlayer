@@ -209,9 +209,9 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     char active_sample_bar[MAX_IND + 1];
     char active_instrument_bar[MAX_IND + 1];
 
-    VOICEINFO voice_info[64];
-    unsigned char sample_active[128] = {0};
-    unsigned char instrument_active[128] = {0};
+    VOICEINFO voice_info[MAX_VOICES_CAP]; //64 or MAX_VOICES_CAP or module->numvoices ?
+    unsigned char sample_active[MAX_VOICES_CAP] = {0};
+    unsigned char instrument_active[MAX_VOICES_CAP] = {0};
     Player_QueryVoices(module->numvoices, voice_info);
 
 
@@ -254,14 +254,9 @@ void draw_playback_panel(MODULE *module, int volume, int update)
         }
 
         if (vol > max_volume) max_volume = vol;
-    }
-    
-    for (i = 0; i < MAX_IND; i++)
-    {
         if (sample_active[i]) active_samples++;
         if (instrument_active[i]) active_instruments++;
     }
-
 
     // VU interpolation
     vu_level = (max_volume * MAX_IND) / 256;
@@ -301,11 +296,9 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     strcpy(buf, "Vol : "); itoa3(buf + 6, volume);
     write_string_attr(43, 10, buf, COL_BLACK_CYAN);
 
-
+    unsigned char attr;
     for (i = 0; i < MAX_IND; i++)
     {
-        unsigned char attr;
-
         // song progress
         write_char_attr(57 + i, 4, i < progress_level ? CH_BLOCK : CH_HLINE, i < progress_level ? 0x08 : 0x08);
 
@@ -325,7 +318,7 @@ void draw_playback_panel(MODULE *module, int volume, int update)
         write_char_attr(57 + i, 9, active_sample_bar[i], attr);
 
         // VU meter
-        write_char_attr(57 + i, 10, i < vu_level ? CH_BLOCK : CH_HLINE, i < vu_level ? 0x1B : 0x08);
+        write_char_attr(57 + i, 10, i < vu_level ? CH_BLOCK : CH_HLINE, i < vu_level ? 0x1C : 0x08);
     }
 }
 
@@ -564,7 +557,7 @@ void PitchControlCallback(void)
 int main(int argc, char *argv[])
 {
     clock_t last_update = 0;
-    int update_interval = CLOCKS_PER_SEC / 12; // 12 times per second
+    int update_interval = CLOCKS_PER_SEC / 10; // 10 times per second
     struct stat file_info;
     int use_memory_load = 0;
     char *s_profile = "default";
