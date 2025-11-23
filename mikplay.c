@@ -306,35 +306,32 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     strcpy(buf, "Vol : "); itoa3(buf + 6, volume);
     write_string_attr(43, 10, buf, COL_BLACK_CYAN);
 
-    // Song progress
-    for (i = 0; i < MAX_IND; i++) write_char_attr(57 + i, 4, i < progress_level ? CH_BLOCK : CH_HLINE, i < progress_level ? 0x08 : 0x08);
-
-    // Row progress
-    for (i = 0; i < MAX_IND; i++) write_char_attr(57 + i, 5, i < row_level ? CH_BLOCK : CH_HLINE, i < row_level ? 0x09 : 0x08);
-
-    // 20 instruments indication
+    // Loop max indicators
     for (i = 0; i < MAX_IND; i++)
     {
-        unsigned char attr = (active_instrument_bar[i] == CH_IND) ? 0x0D : 0x08;  // Yellow
+        // song progress
+        write_char_attr(57 + i, 4, i < progress_level ? CH_BLOCK : CH_HLINE, i < progress_level ? 0x08 : 0x08);
+
+        // rows 
+        write_char_attr(57 + i, 5, i < row_level ? CH_BLOCK : CH_HLINE, i < row_level ? 0x09 : 0x08);
+
+        // instr
+        unsigned char attr = (active_instrument_bar[i] == CH_IND) ? 0x0D : 0x08;
         write_char_attr(57 + i, 7, active_instrument_bar[i], attr);
-    }
 
-    // 20 channels indication   
-    for (i = 0; i < MAX_IND; i++)
-    {
+        // chann
         unsigned char attr = (active_channel_bar[i] == CH_IND) ? 0x0A : 0x08;
         write_char_attr(57 + i, 8, active_channel_bar[i], attr);
-    }
 
-    // 20 samples indication
-    for (i = 0; i < MAX_IND; i++)
-    {
-        unsigned char attr = (active_sample_bar[i] == CH_IND) ? 0x0E : 0x08;  // Yellow when active
+        // samps
+        unsigned char attr = (active_sample_bar[i] == CH_IND) ? 0x0E : 0x08;
         write_char_attr(57 + i, 9, active_sample_bar[i], attr);
+
+        // VU meter
+        write_char_attr(57 + i, 10, i < vu_level ? CH_BLOCK : CH_HLINE, i < vu_level ? 0x14 : 0x08);
     }
+   
     
-    // VU meter
-    for (i = 0; i < MAX_IND; i++) write_char_attr(57 + i, 10, i < vu_level ? CH_BLOCK : CH_HLINE, i < vu_level ? 0x14 : 0x08);
 }
 
 void draw_file_browser()
@@ -399,7 +396,7 @@ void draw_ui(MODULE *module, int volume, char *s_profile)
 
     sprintf(title, "MikPlayer-%d.%d-%s - %s mode", VER_MAJ, VER_MIN, VER_STR, s_profile);
 
-    // Background fill
+    // background fill
     for (y = 1; y < 24; y++)
         for (x = 0; x < 80; x++) write_char_attr(x, y, 176, COL_BLACK_CYAN);
 
@@ -595,7 +592,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // Parse command line options
+    // command line options
     for (i = 2; i < argc; i++)
     {
         if (strcmp(argv[i], "-386") == 0)
@@ -664,7 +661,7 @@ int main(int argc, char *argv[])
         printf("Supported: \n%s\n", MikMod_InfoDriver());
         printf("Active driver index: %d\n", md_device);
     }
-    
+
     printf("Audio output (%s): %dHz, %s, %d voices max\n", s_profile, mix_freq, force_mono ? "mono" : "stereo", max_voices);
     
     if (stat(filename, &file_info) == 0)
@@ -751,7 +748,7 @@ int main(int argc, char *argv[])
     // Cleanup
     _settextcursor(1543);
     _clearscreen(_GCLEARSCREEN);
-    printf("Thanks for using MIKPLAY!\nMore info at https://github.com/izne/MikPlayer\n\n");
+    printf("Having fun?\nMore info at https://github.com/izne/MikPlayer\n\n");
     Player_Stop();
     Player_Free(g_module);
     MikMod_Exit();
