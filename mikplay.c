@@ -572,7 +572,7 @@ void PitchControlCallback(void)
 int main(int argc, char *argv[])
 {
     clock_t last_update = 0;
-    int update_interval = CLOCKS_PER_SEC / 8; // 8 times per second
+    int update_interval = CLOCKS_PER_SEC / 12; // 8 times per second
     struct stat file_info;
     int use_memory_load = 0;
     char *s_profile = "default";
@@ -590,6 +590,7 @@ int main(int argc, char *argv[])
         printf("  -mono     Force mono output\n");
         printf("  -v<num>   Set max voices (default: 64)\n");
         printf("  -f<freq>  Set mixing frequency: 11025, 22050, 44100\n");
+        printf("  -a        Set audio initialization verbose messages\n");
         printf("\nSupports: IT, MOD, S3M, XM, etc.\n");
         return 1;
     }
@@ -602,7 +603,7 @@ int main(int argc, char *argv[])
             mix_freq = 11025;
             max_voices = 8;
             force_mono = 1;
-            update_interval = CLOCKS_PER_SEC; // once per second
+            update_interval = CLOCKS_PER_SEC / 4; // 4x per second
             s_profile = "386";
         }
         else if (strcmp(argv[i], "-486") == 0)
@@ -632,6 +633,7 @@ int main(int argc, char *argv[])
             mix_freq = atoi(argv[i] + 2);
             printf("Mix frequency set to: %d Hz\n", mix_freq);
         }
+        else if (argv[i][0] == '-' && argv[i][1] == 'a') audio_verbose = 1;
     }
     
     filename = argv[1];
@@ -662,6 +664,7 @@ int main(int argc, char *argv[])
         printf("Supported: \n%s\n", MikMod_InfoDriver());
         printf("Active driver index: %d\n", md_device);
     }
+    
     printf("Audio output (%s): %dHz, %s, %d voices max\n", s_profile, mix_freq, force_mono ? "mono" : "stereo", max_voices);
     
     if (stat(filename, &file_info) == 0)
