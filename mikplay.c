@@ -195,7 +195,7 @@ void draw_status_bar(const char *text)
     write_string_attr(1, 24, text, COL_BLACK_LGRAY);
 }
 
-void draw_info_panel(MODULE *module)
+void draw_info_panel(const MODULE *module)
 {
     char buf[80];
     const char *drvname = (md_driver && md_driver->Name) ? md_driver->Name : "unknown";
@@ -219,7 +219,7 @@ void draw_info_panel(MODULE *module)
     write_string_attr(3, 10, buf, COL_BLACK_CYAN);
 }
 
-void draw_playback_panel(MODULE *module, int volume, int update)
+void draw_playback_panel(const MODULE *module, int volume, int update)
 {
     char buf[80];
     int i, vu_level = 0, max_volume = 0;
@@ -232,11 +232,11 @@ void draw_playback_panel(MODULE *module, int volume, int update)
     char active_sample_bar[MAX_IND + 1];
     char active_instrument_bar[MAX_IND + 1];
 
-    VOICEINFO voice_info[MAX_VOICES_CAP]; //64 or MAX_VOICES_CAP or module->numvoices ?
+    static VOICEINFO voice_info[MAX_VOICES_CAP]; //64 or MAX_VOICES_CAP or module->numvoices ?
     unsigned char sample_active[MAX_VOICES_CAP] = {0};
     unsigned char instrument_active[MAX_VOICES_CAP] = {0};
     //Player_QueryVoices(module->numvoices, voice_info);
-    Player_QueryVoices((num_voices > MAX_VOICES_CAP) ? num_voices : MAX_VOICES_CAP, voice_info);
+    Player_QueryVoices((num_voices > MAX_VOICES_CAP) ? MAX_VOICES_CAP : num_voices, voice_info);
 
 
     // active channel/sample/instrument bar placeholders
@@ -254,7 +254,7 @@ void draw_playback_panel(MODULE *module, int volume, int update)
         if (Voice_Stopped(i)) continue;  // skip them stopped voices
         if (i < MAX_IND) active_channel_bar[i] = CH_IND;
 
-        vol = voice_info[i].volume;
+        vol = Voice_GetVolume(i); //vol = voice_info[i].volume;
         active_channels++;
         
         if (voice_info[i].s != NULL) // samples
@@ -277,9 +277,7 @@ void draw_playback_panel(MODULE *module, int volume, int update)
             }
         }
 
-        if (vol > max_volume) max_volume = vol * 4;
-        if (sample_active[i]) active_samples++;
-        if (instrument_active[i]) active_instruments++;
+        if (vol > max_volume) max_volume = vol;
     }
 
     // VU interpolation
@@ -342,7 +340,12 @@ void draw_playback_panel(MODULE *module, int volume, int update)
         write_char_attr(57 + i, 9, active_sample_bar[i], attr);
 
         // VU meter
-        write_char_attr(57 + i, 10, i < vu_level ? CH_BLOCK : CH_HLINE, i < vu_level ? 0x1C : 0x08);
+        int ccol =
+        (i < 3)  ? 0x07 :     // gray
+        (i < 15) ? 0x1A :     // green
+        (i < 18) ? 0x1E :     // yellow
+                   0x1C;      // red
+        write_char_attr(57 + i, 10, i < vu_level ? CH_BLOCK : CH_HLINE, i < vu_level ? ccol : 0x08);
     }
 }
 
@@ -351,7 +354,7 @@ void draw_file_browser()
     // TODO
 }
 
-void draw_comment_panel(MODULE *module)
+void draw_comment_panel(const MODULE *module)
 {
     int i, y;
     char *comment = module->comment;
@@ -399,7 +402,7 @@ void draw_comment_panel(MODULE *module)
     }
 }
 
-void draw_main_panel(MODULE *module)
+void draw_main_panel(const MODULE *module)
 {
     /*if (g_view_mode == 0) draw_pattern_viewer(module);
     else draw_comment_panel(module);
@@ -407,7 +410,7 @@ void draw_main_panel(MODULE *module)
     draw_comment_panel(module);
 }
 
-void draw_ui(MODULE *module, int volume, char *s_profile)
+void draw_ui(const MODULE *module, int volume, char *s_profile)
 {
     int x, y;
     char title[80];
@@ -426,13 +429,13 @@ void draw_ui(MODULE *module, int volume, char *s_profile)
     draw_status_bar("ESC=Quit SPACE=Pause <-/->=Skip +/-=Vol TAB=View");
 }
 
-void update_ui(MODULE *module, int volume)
+void update_ui(const MODULE *module, int volume)
 {
     draw_playback_panel(module, volume, 1);
     if (g_view_mode == 0) draw_main_panel(module); // Redraw only in pattern mode
 }
 
-int process_keyboard(MODULE *module, int volume)
+int process_keyboard(const MODULE *module, int volume)
 {
     if (kbhit())
     {
