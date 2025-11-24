@@ -77,7 +77,7 @@ typedef struct {
 } PanelCache;
 
 // Globals
-MODULE *g_module = NULL;
+static MODULE *g_module = NULL;
 int g_comment_scroll = 0;
 int g_comment_end = 0;
 int g_view_mode = 1; // 0=browser, 1=comments //TODO: make ENUM for that
@@ -92,13 +92,14 @@ long file_size;
 int audio_verbose = 0;
 extern MDRIVER *md_driver;
 static unsigned short *vram_base = (unsigned short *)0xB8000;
+static const char digits[] = "0123456789";
 
 // looping
 bool loop_enabled = false;
 int loop_start = 42;
 int loop_end = 46;
 
-// cache instance
+// cache
 PanelCache cache = {
     -1, -1, -1, -1, // counter data (song/row/numpos and volume)
     -1, -1, -1,     // active samp/inst/chan indicators
@@ -133,8 +134,6 @@ void fill_rect(int x1, int y1, int x2, int y2, unsigned char ch, unsigned char a
             write_char_attr(x, y, ch, attr);
 }
 
-static const char digits[] = "0123456789";
-
 static inline void itoa2(char *buf, int val)
 {
     buf[0] = digits[val / 10];
@@ -150,44 +149,42 @@ static inline void itoa3(char *buf, int val)
     buf[3] = '\0';
 }
 
-void writef2(char *buf, int x, int y, int formatType, int val1, int cacheVal1, int val2, int cacheVal2)
+void writef2(char *buf, int x, int y, int formatType, int val1, int *cacheVal1, int val2, int *cacheVal2)
 {
-    const int val_start = 0;
+    if (!cacheVal1) return;
+    int fresh = 0;
+
     if (formatType == 3) // format 1: XXX/YYY
     {
-        if(cacheVal1 != val1 || cacheVal2 != val2)
+        if(*cacheVal1 != val1 || *cacheVal2 != val2)
         {
-            itoa3(buf + val_start, val1);
-            buf[val_start + 3] = '/';
-            itoa3(buf + val_start + 4, val2);
-            buf[val_start + 7] = '\0'; 
-            cacheVal1 = val1;
-            cacheVal2 = val2;
+            itoa3(buf, val1); buf[3] = '/'; itoa3(buf + 4, val2); buf[7] = '\0'; 
+            *cacheVal1 = val1;
+            *cacheVal2 = val2;
+            fresh = 1;
         }
     }
     else if (formatType == 2) // format 2: XX/YY
     {
-        if(cacheVal1 != val1 || cacheVal2 != val2)
+        if(*cacheVal1 != val1 || *cacheVal2 != val2)
         {
-            itoa2(buf + val_start, val1);
-            buf[val_start + 2] = '/';
-            itoa2(buf + val_start + 3, val2);
-            buf[val_start + 5] = '\0';
-            cacheVal1 = val1;
-            cacheVal2 = val2;
+            itoa2(buf, val1); buf[2] = '/'; itoa2(buf + 3, val2); buf[5] = '\0';
+            *cacheVal1 = val1;
+            *cacheVal2 = val2;
+            fresh = 1;
         }
     }
     else if (formatType == 1) // format 3: XXX (Single Value)
     {
-        if(cacheVal1 != val1)
+        if(*cacheVal1 != val1)
         {
-            itoa3(buf + val_start, val1);
-            buf[val_start + 3] = '\0';
-            cacheVal1 = val1;
+            itoa3(buf, val1); buf[3] = '\0';
+            *cacheVal1 = val1;
+            fresh = 1;
         }
     }
 
-    write_string_attr(x, y, buf, COL_BLACK_CYAN);
+    if(fresh) write_string_attr(x, y, buf, COL_BLACK_CYAN);
 }
 
 void draw_box(int x1, int y1, int x2, int y2, unsigned char attr)
@@ -339,12 +336,12 @@ void draw_playback_panel(const MODULE *module, int volume, int update)
     else row_level = 0;
     if (row_level > MAX_IND) row_level = MAX_IND;
     
-    if(!update) // static labels here
-    {
+    if(!update) 
+    {   
+        // static labels here
         draw_box(41, 3, 78, 11, COL_BLACK_CYAN);
         write_string_attr(43, 3, "Playback", COL_YELLOW_CYAN);
 
-        // static labels once
         write_string_attr(43, 4, "Pat:", COL_BLACK_CYAN);
         write_string_attr(43, 5, "Row:", COL_BLACK_CYAN);
         write_string_attr(43, 6, "Vol:", COL_BLACK_CYAN);
@@ -353,13 +350,13 @@ void draw_playback_panel(const MODULE *module, int volume, int update)
         write_string_attr(43, 10,"Smp:", COL_BLACK_CYAN);        
     }
 
-    // write new data only
-    writef2(buf, 48, 4, 3, module->sngpos, cache.sngpos, module->numpos - 1, cache.numpos - 1);
-    writef2(buf, 48, 5, 1, module->patpos, cache.patpos, NULL, NULL);
-    writef2(buf, 48, 6, 1, volume, cache.volume, NULL, NULL);
-    writef2(buf, 48, 8, 2, active_instruments, cache.active_inst, module->numins, cache.numins);
-    writef2(buf, 48, 9, 2, active_channels, cache.active_chan, module->numchn, cache.numchn);
-    writef2(buf, 48, 10, 2, active_samples, cache.active_samp, module->numsmp, cache.numsmp);
+    // write fresh data only
+    writef2(buf, 48, 4, 3, module->sngpos, &cache.sngpos, module->numpos - 1, &cache.numpos);
+    writef2(buf, 48, 5, 1, module->patpos, &cache.patpos, NULL, NULL);
+    writef2(buf, 48, 6, 1, volume, &cache.volume, NULL, NULL);
+    writef2(buf, 48, 8, 2, active_instruments, &cache.active_inst, module->numins, &cache.numins);
+    writef2(buf, 48, 9, 2, active_channels, &cache.active_chan, module->numchn, &cache.numchn);
+    writef2(buf, 48, 10, 2, active_samples, &cache.active_samp, module->numsmp, &cache.numsmp);
 
     for (i = 0; i < MAX_IND; i++)
     {
