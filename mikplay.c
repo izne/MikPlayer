@@ -50,7 +50,8 @@
 #define CH_BTEE     193  // Á
 #define CH_CROSS    197  // Å
 #define CH_BLOCK    219  // Û
-#define CH_IND      254
+#define CH_IND      254  // indicator light
+#define CH_SHADE    176  // °
 
 // Colors
 #define COL_CYAN_BLUE    0x31    // Cyan on blue
@@ -68,7 +69,14 @@
 #define MAX_IND 20
 #define VOICE_QUERY_INTERVAL 4
 
-// Global vars
+typedef struct {
+    int sngpos, numpos, patpos, volume;
+    int active_inst, active_chan, active_samp;
+    int numins, numchn, numsmp;
+    int progress_level, row_level, vu_level;
+} PanelCache;
+
+// Globals
 MODULE *g_module = NULL;
 int g_comment_scroll = 0;
 int g_comment_end = 0;
@@ -90,6 +98,13 @@ bool loop_enabled = false;
 int loop_start = 42;
 int loop_end = 46;
 
+// cache instance
+PanelCache cache = {
+    -1, -1, -1, -1, // counter data (song/row/numpos and volume)
+    -1, -1, -1,     // active samp/inst/chan indicators
+    -1, -1, -1,     // number samp/inst/chan 
+    -1, -1, -1      // row data (progress)
+};
 
 // JIJEI
 float pitch_factor = 1.0;
@@ -135,29 +150,41 @@ static inline void itoa3(char *buf, int val)
     buf[3] = '\0';
 }
 
-void writef(char *buf, int x, int y, const char *label, int val1, int val2, int digits)
+void writef2(char *buf, int x, int y, int formatType, int val1, int cacheVal1, int val2, int cacheVal2)
 {
-    int val_start = strlen(label); 
-    strcpy(buf, label); 
-
-    if (digits == 3) // format 1: XXX/YYY
+    const int val_start = 0;
+    if (formatType == 3) // format 1: XXX/YYY
     {
-        itoa3(buf + val_start, val1);
-        buf[val_start + 3] = '/';
-        itoa3(buf + val_start + 4, val2);
-        buf[val_start + 7] = '\0'; 
+        if(cacheVal1 != val1 || cacheVal2 != val2)
+        {
+            itoa3(buf + val_start, val1);
+            buf[val_start + 3] = '/';
+            itoa3(buf + val_start + 4, val2);
+            buf[val_start + 7] = '\0'; 
+            cacheVal1 = val1;
+            cacheVal2 = val2;
+        }
     }
-    else if (digits == 2) // format 2: XX/YY
+    else if (formatType == 2) // format 2: XX/YY
     {
-        itoa2(buf + val_start, val1);
-        buf[val_start + 2] = '/';
-        itoa2(buf + val_start + 3, val2);
-        buf[val_start + 5] = '\0';
+        if(cacheVal1 != val1 || cacheVal2 != val2)
+        {
+            itoa2(buf + val_start, val1);
+            buf[val_start + 2] = '/';
+            itoa2(buf + val_start + 3, val2);
+            buf[val_start + 5] = '\0';
+            cacheVal1 = val1;
+            cacheVal2 = val2;
+        }
     }
-    else if (digits == 1) // format 3: XXX (Single Value)
+    else if (formatType == 1) // format 3: XXX (Single Value)
     {
-        itoa3(buf + val_start, val1);
-        buf[val_start + 3] = '\0';
+        if(cacheVal1 != val1)
+        {
+            itoa3(buf + val_start, val1);
+            buf[val_start + 3] = '\0';
+            cacheVal1 = val1;
+        }
     }
 
     write_string_attr(x, y, buf, COL_BLACK_CYAN);
@@ -249,9 +276,7 @@ void draw_playback_panel(const MODULE *module, int volume, int update)
     unsigned char sample_active[MAX_VOICES_CAP] = {0};
     unsigned char instrument_active[MAX_VOICES_CAP] = {0};
     static int query_counter = 0;
-    unsigned char attr;
 
-    
     if (++query_counter >= VOICE_QUERY_INTERVAL) // every 4th frame only
     {
         Player_QueryVoices((num_voices > MAX_VOICES_CAP) ? MAX_VOICES_CAP : num_voices, voice_info);
@@ -314,46 +339,61 @@ void draw_playback_panel(const MODULE *module, int volume, int update)
     else row_level = 0;
     if (row_level > MAX_IND) row_level = MAX_IND;
     
-    if(!update)
+    if(!update) // static labels here
     {
         draw_box(41, 3, 78, 11, COL_BLACK_CYAN);
         write_string_attr(43, 3, "Playback", COL_YELLOW_CYAN);
+
+        // static labels once
+        write_string_attr(43, 4, "Pat:", COL_BLACK_CYAN);
+        write_string_attr(43, 5, "Row:", COL_BLACK_CYAN);
+        write_string_attr(43, 6, "Vol:", COL_BLACK_CYAN);
+        write_string_attr(43, 8, "Ins:", COL_BLACK_CYAN);
+        write_string_attr(43, 9, "Chn:", COL_BLACK_CYAN);
+        write_string_attr(43, 10,"Smp:", COL_BLACK_CYAN);        
     }
 
-    writef(buf, 43, 4, "Patt: ", module->sngpos, module->numpos - 1, 3);
-    writef(buf, 43, 5, "Row : ", module->patpos, NULL, 1);
-    writef(buf, 43, 7, "Inst: ", active_instruments, module->numins, 2);
-    writef(buf, 43, 8, "Chan: ", active_channels, module->numchn, 2);
-    writef(buf, 43, 9, "Samp: ", active_samples, module->numsmp, 2);
-    writef(buf, 43, 10, "Vol : ", volume, NULL, 1);
+    // write new data only
+    writef2(buf, 48, 4, 3, module->sngpos, cache.sngpos, module->numpos - 1, cache.numpos - 1);
+    writef2(buf, 48, 5, 1, module->patpos, cache.patpos, NULL, NULL);
+    writef2(buf, 48, 6, 1, volume, cache.volume, NULL, NULL);
+    writef2(buf, 48, 8, 2, active_instruments, cache.active_inst, module->numins, cache.numins);
+    writef2(buf, 48, 9, 2, active_channels, cache.active_chan, module->numchn, cache.numchn);
+    writef2(buf, 48, 10, 2, active_samples, cache.active_samp, module->numsmp, cache.numsmp);
 
     for (i = 0; i < MAX_IND; i++)
     {
         // song progress
-        write_char_attr(57 + i, 4, i < progress_level ? CH_BLOCK : CH_HLINE, i < progress_level ? 0x08 : 0x08);
+        if(progress_level != cache.progress_level)
+        {
+            write_char_attr(56 + i, 4, (i < progress_level) ? CH_BLOCK : CH_HLINE, (i < progress_level) ? 0x08 : 0x08);
+            if(i == MAX_IND - 1) cache.progress_level = progress_level;
+        }
 
         // rows progress
-        write_char_attr(57 + i, 5, i < row_level ? CH_BLOCK : CH_HLINE, i < row_level ? 0x09 : 0x08);
+        if(row_level != cache.row_level)
+        {
+            write_char_attr(56 + i, 5, (i < row_level) ? CH_BLOCK : CH_HLINE, (i < row_level) ? 0x09 : 0x08);
+            if(i == MAX_IND - 1) cache.row_level = row_level;
+        }
 
-        // instr
-        attr = (active_instrument_bar[i] == CH_IND) ? 0x0D : 0x08;
-        write_char_attr(57 + i, 7, active_instrument_bar[i], attr);
-
-        // chan
-        attr = (active_channel_bar[i] == CH_IND) ? 0x0A : 0x08;
-        write_char_attr(57 + i, 8, active_channel_bar[i], attr);
-
-        // samps
-        attr = (active_sample_bar[i] == CH_IND) ? 0x0E : 0x08;
-        write_char_attr(57 + i, 9, active_sample_bar[i], attr);
 
         // VU meter
-        int ccol =
-        (i < 3)  ? 0x08 :     // gray
-        (i < 15) ? 0x02 :     // green
-        (i < 18) ? 0x06 :     // yellow
-                   0x04;      // red
-        write_char_attr(57 + i, 10, i < vu_level ? CH_BLOCK : CH_HLINE, i < vu_level ? ccol : 0x08);
+        if(vu_level != cache.vu_level)
+        {
+            int ccol =
+            (i < 3)  ? 0x08 :     // gray
+            (i < 15) ? 0x02 :     // green
+            (i < 18) ? 0x06 :     // yellow
+                    0x04;      // red
+            write_char_attr(56 + i, 6, (i < vu_level) ? CH_BLOCK : CH_HLINE, (i < vu_level) ? ccol : 0x08);
+            if(i == MAX_IND - 1) cache.vu_level = vu_level;
+        }
+
+        // indicator bars: instr/chan/samps
+        write_char_attr(56 + i, 8, active_instrument_bar[i], (active_instrument_bar[i] == CH_IND) ? 0x0D : 0x08);
+        write_char_attr(56 + i, 9, active_channel_bar[i], (active_channel_bar[i] == CH_IND) ? 0x0A : 0x08);
+        write_char_attr(56 + i, 10, active_sample_bar[i], (active_sample_bar[i] == CH_IND) ? 0x0E : 0x08);
     }
 }
 
@@ -427,7 +467,7 @@ void draw_ui(const MODULE *module, int volume, char *s_profile)
 
     // background fill
     for (y = 1; y < 24; y++)
-        for (x = 0; x < 80; x++) write_char_attr(x, y, 176, COL_BLACK_CYAN);
+        for (x = 0; x < 80; x++) write_char_attr(x, y, CH_SHADE, COL_BLACK_CYAN);
 
     draw_title_bar(title);
     //draw_menu_bar();
