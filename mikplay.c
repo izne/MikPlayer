@@ -67,44 +67,40 @@
 
 #define MAX_VOICES_CAP 128
 #define MAX_IND 20
-#define VOICE_QUERY_INTERVAL 4
+#define VOICE_QUERY_INTERVAL 5
 
 typedef struct {
     int sngpos, numpos, patpos, volume;
     int active_inst, active_chan, active_samp;
     int numins, numchn, numsmp;
     int progress_level, row_level, vu_level;
+    char active_channel_bar[MAX_IND + 1];
+    char active_sample_bar[MAX_IND + 1];
+    char active_instrument_bar[MAX_IND + 1];
 } PanelCache;
 
 // Globals
 static MODULE *g_module = NULL;
-int g_comment_scroll = 0;
-int g_comment_end = 0;
-int g_view_mode = 1; // 0=browser, 1=comments //TODO: make ENUM for that
-int g_channel_offset = 0;
-int g_max_visible_channels = 8;
-int current_volume = 128;
-int max_voices = 64;
-int mix_freq = 22050;
-int force_mono = 0;
+static int g_comment_scroll = 0, g_comment_end = 0, g_view_mode = 1; // 0=browser, 1=comments
+static int g_channel_offset = 0, g_max_visible_channels = 8, current_volume = 128, max_voices = 64, mix_freq = 22050, force_mono = 0, audio_verbose = 0;
 char *filename;
 long file_size;
-int audio_verbose = 0;
 extern MDRIVER *md_driver;
 static unsigned short *vram_base = (unsigned short *)0xB8000;
 static const char digits[] = "0123456789";
 
 // looping
-bool loop_enabled = false;
-int loop_start = 42;
-int loop_end = 46;
+static bool loop_enabled = false;
+static int loop_start = 42;
+static int loop_end = 46;
 
 // cache
 PanelCache cache = {
     -1, -1, -1, -1, // counter data (song/row/numpos and volume)
     -1, -1, -1,     // active samp/inst/chan indicators
     -1, -1, -1,     // number samp/inst/chan 
-    -1, -1, -1      // row data (progress)
+    -1, -1, -1,      // row data (progress)
+    "", "", ""      // char active_xxx_bar[MAX_IND+1]
 };
 
 // JIJEI
@@ -258,7 +254,7 @@ void draw_info_panel(const MODULE *module)
 
 void draw_playback_panel(const MODULE *module, int volume, int update)
 {
-    char buf[80];
+    static char buf[80];
     int i, vu_level = 0, max_volume = 0;
     int active_channels = 0, active_samples = 0, active_instruments = 0;
     int progress_level, row_level, vol;
@@ -274,7 +270,7 @@ void draw_playback_panel(const MODULE *module, int volume, int update)
     unsigned char instrument_active[MAX_VOICES_CAP] = {0};
     static int query_counter = 0;
 
-    if (++query_counter >= VOICE_QUERY_INTERVAL) // every 4th frame only
+    if (++query_counter >= VOICE_QUERY_INTERVAL) // every Nth frame only
     {
         Player_QueryVoices((num_voices > MAX_VOICES_CAP) ? MAX_VOICES_CAP : num_voices, voice_info);
         query_counter = 0;
@@ -289,6 +285,7 @@ void draw_playback_panel(const MODULE *module, int volume, int update)
     memset(active_instrument_bar, CH_HLINE, MAX_IND);
     active_instrument_bar[MAX_IND] = '\0';
 
+    // extract data for indication
     for (i = 0; i < num_voices; i++)
     {
         if (Voice_Stopped(i)) continue;  // skip them stopped voices
@@ -356,7 +353,7 @@ void draw_playback_panel(const MODULE *module, int volume, int update)
     writef2(buf, 48, 6, 1, volume, &cache.volume, NULL, NULL);
     writef2(buf, 48, 8, 2, active_instruments, &cache.active_inst, module->numins, &cache.numins);
     writef2(buf, 48, 9, 2, active_channels, &cache.active_chan, module->numchn, &cache.numchn);
-    writef2(buf, 48, 10, 2, active_samples, &cache.active_samp, module->numsmp, &cache.numsmp);
+    writef2(buf, 48,10, 2, active_samples, &cache.active_samp, module->numsmp, &cache.numsmp);
 
     for (i = 0; i < MAX_IND; i++)
     {
@@ -388,9 +385,24 @@ void draw_playback_panel(const MODULE *module, int volume, int update)
         }
 
         // indicator bars: instr/chan/samps
-        write_char_attr(56 + i, 8, active_instrument_bar[i], (active_instrument_bar[i] == CH_IND) ? 0x0D : 0x08);
-        write_char_attr(56 + i, 9, active_channel_bar[i], (active_channel_bar[i] == CH_IND) ? 0x0A : 0x08);
-        write_char_attr(56 + i, 10, active_sample_bar[i], (active_sample_bar[i] == CH_IND) ? 0x0E : 0x08);
+        if (active_instrument_bar[i] != cache.active_instrument_bar[i])
+        {
+            write_char_attr(56 + i, 8, active_instrument_bar[i], (active_instrument_bar[i] == CH_IND) ? 0x0D : 0x08);
+            cache.active_instrument_bar[i] = active_instrument_bar[i];
+        }
+        
+        if(active_channel_bar[i] != cache.active_channel_bar[i])
+        {
+            write_char_attr(56 + i, 9, active_channel_bar[i], (active_channel_bar[i] == CH_IND) ? 0x0A : 0x08);
+            cache.active_channel_bar[i] = active_channel_bar[i];
+        }
+        
+        if(active_sample_bar[i] != cache.active_sample_bar[i])
+        {
+            write_char_attr(56 + i, 10, active_sample_bar[i], (active_sample_bar[i] == CH_IND) ? 0x0E : 0x08);
+            cache.active_sample_bar[i] = active_sample_bar[i];
+        }
+        
     }
 }
 
@@ -810,7 +822,7 @@ int main(int argc, char *argv[])
         //PitchControlCallback();
 
         // Looping?
-        if (loop_enabled && (g_module->sngpos == loop_end)) Player_SetPosition(loop_start);
+        if (loop_enabled && (g_module->sngpos >= loop_end)) Player_SetPosition(loop_start);
 
         if (now - last_update >= update_interval)
         {
