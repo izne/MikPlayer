@@ -34,7 +34,7 @@
 
 #define MEM_LOAD_THRESHOLD 6291456
 #define VER_MAJ 0
-#define VER_MIN 71
+#define VER_MIN 72
 #define VER_STR "retrohw"
 
 // IBM Chars (CP437)
@@ -88,6 +88,7 @@ long file_size;
 extern MDRIVER *md_driver;
 static unsigned short *vram_base = (unsigned short *)0xB8000;
 static const char digits[] = "0123456789";
+static int g_redrawn_comment = 0;
 
 // looping
 static bool loop_enabled = false;
@@ -152,6 +153,7 @@ void writef2(char *buf, int x, int y, int formatType, int val1, int *cacheVal1, 
 
     if (formatType == 3) // format 1: XXX/YYY
     {
+        if (!cacheVal2) return; 
         if(*cacheVal1 != val1 || *cacheVal2 != val2)
         {
             itoa3(buf, val1); buf[3] = '/'; itoa3(buf + 4, val2); buf[7] = '\0'; 
@@ -162,6 +164,7 @@ void writef2(char *buf, int x, int y, int formatType, int val1, int *cacheVal1, 
     }
     else if (formatType == 2) // format 2: XX/YY
     {
+        if (!cacheVal2) return; 
         if(*cacheVal1 != val1 || *cacheVal2 != val2)
         {
             itoa2(buf, val1); buf[2] = '/'; itoa2(buf + 3, val2); buf[5] = '\0';
@@ -261,9 +264,9 @@ void draw_playback_panel(const MODULE *module, int volume, int update)
     int current_pattern = module->sngpos;
     int max_rows = 64; // fallback
     int num_voices = module->numvoices;
-    char active_channel_bar[MAX_IND + 1]; // MAX_IND chars + null terminator
-    char active_sample_bar[MAX_IND + 1];
-    char active_instrument_bar[MAX_IND + 1];
+    static char active_channel_bar[MAX_IND + 1]; // MAX_IND chars + null terminator
+    static char active_sample_bar[MAX_IND + 1];
+    static char active_instrument_bar[MAX_IND + 1];
 
     static VOICEINFO voice_info[MAX_VOICES_CAP]; //64 or MAX_VOICES_CAP or module->numvoices ?
     unsigned char sample_active[MAX_VOICES_CAP] = {0};
@@ -413,6 +416,8 @@ void draw_file_browser()
 
 void draw_comment_panel(const MODULE *module)
 {
+    if(g_redrawn_comment) return;
+
     int i, y;
     char *comment = module->comment;
     int line_count = 0;
@@ -457,6 +462,8 @@ void draw_comment_panel(const MODULE *module)
         write_string_attr(3, y++, line, COL_BLACK_CYAN);
         line_count++;
     }
+
+    g_redrawn_comment = 1;
 }
 
 void draw_main_panel(const MODULE *module)
@@ -464,7 +471,7 @@ void draw_main_panel(const MODULE *module)
     /*if (g_view_mode == 0) draw_pattern_viewer(module);
     else draw_comment_panel(module);
     */
-    draw_comment_panel(module);
+    if (g_view_mode != 0) draw_comment_panel(module);
 }
 
 void draw_ui(const MODULE *module, int volume, char *s_profile)
@@ -529,6 +536,7 @@ int process_keyboard(const MODULE *module, int volume)
             g_channel_offset = 0;
             g_comment_scroll = 0;
             */
+            g_redrawn_comment = 0;
             draw_main_panel(module);
         }
         else if (ch == ' ')
@@ -592,6 +600,7 @@ int process_keyboard(const MODULE *module, int volume)
                 if (g_view_mode == 1 && g_comment_scroll > 0)
                 {
                     g_comment_scroll--;
+                    g_redrawn_comment = 0;
                     draw_main_panel(module);
                 }
             }
@@ -600,6 +609,7 @@ int process_keyboard(const MODULE *module, int volume)
                 if (g_view_mode == 1)
                 {
                     if(!g_comment_end) g_comment_scroll++;
+                    g_redrawn_comment = 0;
                     draw_main_panel(module);
                 }
             }
